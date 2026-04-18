@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Ryden Belmont - Manual Clip Player</title>
+    <script src="https://embed.twitch.tv/embed/v1.js"></script>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; }
+        #player-container { width: 100vw; height: 100vh; }
+    </style>
+</head>
+<body>
+    <div id="player-container"></div>
+
+    <script>
+        // List your clip slugs here. 
+        // You can get these from your Twitch Dashboard > Content > Clips
+        const clipList = [
+            "AwkwardAnxiousGnatKeepo-P_7cnq-vXw6zP3m8",
+            "YourSecondClipSlugHere",
+            "YourThirdClipSlugHere"
+        ];
+
+        let currentIndex = 0;
+
+        const options = {
+            width: '100%',
+            height: '100%',
+            clip: clipList[currentIndex],
+            autoplay: true,
+            muted: false,
+            // When using a local file, we leave 'parent' empty or use an asterisk 
+            // but Twitch embeds are very picky with file:/// 
+            parent: ["localhost"] 
+        };
+
+        const player = new Twitch.Player("player-container", options);
+
+        player.addEventListener(Twitch.Player.ENDED, () => {
+            currentIndex = (currentIndex + 1) % clipList.length;
+            player.setClip(clipList[currentIndex]);
+        });
+    </script>
+</body>
+</html>
