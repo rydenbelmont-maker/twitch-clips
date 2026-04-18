@@ -4,112 +4,132 @@
     <title>Ryden Belmont - Clip Scene</title>
     <script src="https://embed.twitch.tv/embed/v1.js"></script>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; }
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
         #player-container { width: 100vw; height: 100vh; }
+        
+        /* The Invisible Menu - Hover top-left in OBS Interact to see */
         #controls {
-            position: absolute; top: 0; left: 0; padding: 10px;
-            background: rgba(0,0,0,0.85); color: #fff; opacity: 0; transition: 0.3s; z-index: 100;
+            position: absolute; top: 0; left: 0; width: 220px; padding: 15px;
+            background: rgba(15, 15, 15, 0.95); color: white; opacity: 0; 
+            transition: opacity 0.3s; z-index: 9999; border: 1px solid #9147ff;
         }
         #controls:hover { opacity: 1; }
-        .status { font-size: 10px; color: #9147ff; margin-bottom: 5px; font-family: monospace; }
-        select, input, button { display: block; width: 100%; margin-top: 5px; padding: 5px; border-radius: 4px; border: none; }
-        button { background: #9147ff; color: white; font-weight: bold; cursor: pointer; }
+        .setting { margin-bottom: 12px; }
+        label { display: block; font-size: 11px; color: #adadb8; margin-bottom: 4px; text-transform: uppercase; }
+        select, input, button { width: 100%; background: #000; color: white; border: 1px solid #464649; padding: 8px; border-radius: 4px; box-sizing: border-box; }
+        button { background: #9147ff; border: none; color: white; padding: 10px; cursor: pointer; font-weight: bold; margin-top: 5px; }
+        button:hover { background: #772ce8; }
+        #status { font-size: 10px; color: #9147ff; margin-bottom: 8px; font-family: monospace; }
     </style>
 </head>
 <body>
+
     <div id="controls">
-        <div id="diag" class="status">Initializing...</div>
-        <select id="mode">
-            <option value="trending">Top Clips (All Time)</option>
-            <option value="fresh">Fresh (7 Days)</option>
-            <option value="shuffle">Shuffle Mode</option>
-        </select>
-        <input type="text" id="exclude" placeholder="Exclude keyword...">
-        <button onclick="fetchClips()">Refresh Scene</button>
+        <div id="status">Status: Initializing...</div>
+        <div class="setting">
+            <label>Filter Mode</label>
+            <select id="mode">
+                <option value="trending">Top Clips (All Time)</option>
+                <option value="fresh">Fresh (Last 7 Days)</option>
+                <option value="shuffle">Random Shuffle</option>
+            </select>
+        </div>
+        <div class="setting">
+            <label>Exclude Keyword</label>
+            <input type="text" id="exclude" placeholder="e.g. 'horror'">
+        </div>
+        <button onclick="refreshClips()">UPDATE SCENE</button>
     </div>
+
     <div id="player-container"></div>
 
     <script>
         const CLIENT_ID = 'mdizqkgtl6tar5h4si6hsikyxcvo1c';
-        const CLIENT_SECRET = 'ucoch701izagi3shhamm6kzsevl34y';
+        const ACCESS_TOKEN = 'k1qc1ekg9n61r1h3qa779sposci95t';
         const BROADCASTER_ID = '635887962';
 
-        // This is a public proxy to bypass the CORS block
-        const PROXY = "https://cors-anywhere.herokuapp.com/"; 
-
         let clips = [];
+        let currentIndex = 0;
         let player = null;
-        let token = "";
-
-        async function start() {
-            log("Auth: Getting Token...");
-            try {
-                // Requesting token via the proxy
-                const r = await fetch(PROXY + `https://id.twitch.tv/oauth2/token?client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&grant_type=client_credentials`, { method: 'POST' });
-                const d = await r.json();
-                
-                if (d.access_token) {
-                    token = d.access_token;
-                    log("Auth: Success");
-                    fetchClips();
-                } else {
-                    log("Auth: Failed (Check Secret)");
-                }
-            } catch(e) { 
-                log("System: Proxy Required. See console."); 
-                // NOTE: If using 'cors-anywhere', you may need to visit 
-                // https://cors-anywhere.herokuapp.com/corsdemo to 'unlock' it for your IP.
-            }
-        }
 
         async function fetchClips() {
-            log("API: Fetching...");
+            log("Fetching...");
             const mode = document.getElementById('mode').value;
-            const exclude = document.getElementById('exclude').value.toLowerCase();
+            const excludeTerm = document.getElementById('exclude').value.toLowerCase();
             
-            let url = `https://api.twitch.tv/helix/clips?broadcaster_id=${BROADCASTER_ID}&first=50`;
+            let url = `https://api.twitch.tv/helix/clips?broadcaster_id=${BROADCASTER_ID}&first=100`;
+
             if (mode === 'fresh') {
-                let d = new Date(); d.setDate(d.getDate() - 7);
-                url += `&started_at=${d.toISOString()}`;
+                let lastWeek = new Date();
+                lastWeek.setDate(lastWeek.getDate() - 7);
+                url += `&started_at=${lastWeek.toISOString()}`;
             }
 
             try {
-                const r = await fetch(PROXY + url, {
-                    headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${token}` }
+                const response = await fetch(url, {
+                    headers: {
+                        'Client-ID': CLIENT_ID,
+                        'Authorization': `Bearer ${ACCESS_TOKEN}`
+                    }
                 });
-                const d = await r.json();
-                clips = d.data || [];
-
-                if (exclude) clips = clips.filter(c => !c.title.toLowerCase().includes(exclude));
-                if (mode === 'shuffle') clips.sort(() => Math.random() - 0.5);
+                const data = await response.json();
                 
-                if (clips.length > 0) {
-                    log(`${clips.length} Clips Loaded`);
-                    loadPlayer(clips[0].id);
-                } else {
-                    log("No Clips Found");
+                if (!data.data || data.data.length === 0) {
+                    log("No clips found.");
+                    return;
                 }
-            } catch(e) { log("API: Error"); }
-        }
 
-        function loadPlayer(id) {
-            if (!player) {
-                player = new Twitch.Player("player-container", {
-                    width: '100%', height: '100%', clip: id,
-                    autoplay: true, parent: ["rydenbelmont-maker.github.io"]
-                });
-                player.addEventListener(Twitch.Player.ENDED, () => {
-                    let next = Math.floor(Math.random() * clips.length);
-                    player.setClip(clips[next].id);
-                });
-            } else {
-                player.setClip(id);
+                clips = data.data;
+
+                // Filter
+                if (excludeTerm) {
+                    clips = clips.filter(c => !c.title.toLowerCase().includes(excludeTerm));
+                }
+
+                // Shuffle
+                if (mode === 'shuffle') {
+                    clips.sort(() => Math.random() - 0.5);
+                }
+
+                log(`${clips.length} Clips Loaded`);
+                playClip(0);
+
+            } catch (err) {
+                log("API Error.");
+                console.error(err);
             }
         }
 
-        function log(msg) { document.getElementById('diag').innerText = "Status: " + msg; }
+        function playClip(index) {
+            const clipId = clips[index].id;
+            
+            if (!player) {
+                player = new Twitch.Player("player-container", {
+                    width: '100%',
+                    height: '100%',
+                    clip: clipId,
+                    autoplay: true,
+                    muted: false,
+                    parent: ["rydenbelmont-maker.github.io"]
+                });
 
-        start();
+                player.addEventListener(Twitch.Player.ENDED, () => {
+                    currentIndex = (currentIndex + 1) % clips.length;
+                    player.setClip(clips[currentIndex].id);
+                });
+            } else {
+                player.setClip(clipId);
+            }
+        }
+
+        function refreshClips() {
+            currentIndex = 0;
+            fetchClips();
+        }
+
+        function log(msg) { document.getElementById('status').innerText = "Status: " + msg; }
+
+        window.onload = fetchClips;
     </script>
 </body>
 </html>
