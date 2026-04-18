@@ -1,44 +1,114 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Ryden Belmont - Manual Clip Player</title>
+    <title>Ryden Belmont - Clip Player</title>
     <script src="https://embed.twitch.tv/embed/v1.js"></script>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; }
-        #player-container { width: 100vw; height: 100vh; }
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+        #player-container { width: 100vw; height: 100vh; background: #000; }
+        #controls {
+            position: absolute; top: 0; left: 0; padding: 15px;
+            background: rgba(15, 15, 15, 0.9); color: white; opacity: 0; 
+            transition: opacity 0.3s; z-index: 9999; border: 1px solid #9147ff;
+        }
+        #controls:hover { opacity: 1; }
+        .status { font-size: 10px; color: #9147ff; margin-bottom: 8px; font-family: monospace; }
+        select, input, button { display: block; width: 100%; margin-top: 8px; padding: 8px; border-radius: 4px; border: none; font-size: 12px; }
+        button { background: #9147ff; color: white; font-weight: bold; cursor: pointer; }
     </style>
 </head>
 <body>
+    <div id="controls">
+        <div id="diag" class="status">Status: Initializing...</div>
+        <select id="mode">
+            <option value="trending">Top Clips (All Time)</option>
+            <option value="fresh">Fresh (7 Days)</option>
+            <option value="shuffle">Shuffle Mode</option>
+        </select>
+        <input type="text" id="exclude" placeholder="Exclude keyword...">
+        <button onclick="refreshClips()">Refresh Scene</button>
+    </div>
     <div id="player-container"></div>
 
     <script>
-        // List your clip slugs here. 
-        // You can get these from your Twitch Dashboard > Content > Clips
-        const clipList = [
-            "AwkwardAnxiousGnatKeepo-P_7cnq-vXw6zP3m8",
-            "YourSecondClipSlugHere",
-            "YourThirdClipSlugHere"
-        ];
+        const CLIENT_ID = 'mdizqkgtl6tar5h4si6hsikyxcvo1c';
+        const CLIENT_SECRET = 'ucoch701izagi3shhamm6kzsevl34y';
+        const BROADCASTER_ID = '635887962';
 
-        let currentIndex = 0;
+        let clips = [];
+        let player = null;
+        let token = "";
 
-        const options = {
-            width: '100%',
-            height: '100%',
-            clip: clipList[currentIndex],
-            autoplay: true,
-            muted: false,
-            // When using a local file, we leave 'parent' empty or use an asterisk 
-            // but Twitch embeds are very picky with file:/// 
-            parent: ["rydenbelmont-maker.github.io"] 
-        };
+        async function start() {
+            log("Auth: Getting Token...");
+            try {
+                const r = await fetch(`https://id.twitch.tv/oauth2/token?client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&grant_type=client_credentials`, { method: 'POST' });
+                const d = await r.json();
+                if (d.access_token) {
+                    token = d.access_token;
+                    log("Auth: Success");
+                    fetchClips();
+                } else {
+                    log("Auth: Failed - Check Secret");
+                }
+            } catch(e) { log("System: Network Error"); }
+        }
 
-        const player = new Twitch.Player("player-container", options);
+        async function fetchClips() {
+            log("API: Fetching...");
+            const mode = document.getElementById('mode').value;
+            const exclude = document.getElementById('exclude').value.toLowerCase();
+            
+            let url = `https://api.twitch.tv/helix/clips?broadcaster_id=${BROADCASTER_ID}&first=50`;
+            if (mode === 'fresh') {
+                let d = new Date(); d.setDate(d.getDate() - 7);
+                url += `&started_at=${d.toISOString()}`;
+            }
 
-        player.addEventListener(Twitch.Player.ENDED, () => {
-            currentIndex = (currentIndex + 1) % clipList.length;
-            player.setClip(clipList[currentIndex]);
-        });
+            try {
+                const r = await fetch(url, {
+                    headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${token}` }
+                });
+                const d = await r.json();
+                clips = d.data || [];
+
+                if (exclude) clips = clips.filter(c => !c.title.toLowerCase().includes(exclude));
+                if (mode === 'shuffle') clips.sort(() => Math.random() - 0.5);
+                
+                if (clips.length > 0) {
+                    log(`${clips.length} Clips Found`);
+                    loadPlayer(clips[0].id);
+                } else {
+                    log("No Clips Found");
+                }
+            } catch(e) { log("API: Error"); }
+        }
+
+        function loadPlayer(id) {
+            // FIX: This now uses your exact GitHub domain
+            const currentDomain = "rydenbelmont-maker.github.io";
+            
+            if (!player) {
+                player = new Twitch.Player("player-container", {
+                    width: '100%',
+                    height: '100%',
+                    clip: id,
+                    autoplay: true,
+                    parent: [currentDomain] 
+                });
+                player.addEventListener(Twitch.Player.ENDED, () => {
+                    let next = Math.floor(Math.random() * clips.length);
+                    player.setClip(clips[next].id);
+                });
+            } else {
+                player.setClip(id);
+            }
+        }
+
+        function log(msg) { document.getElementById('diag').innerText = "Status: " + msg; }
+        function refreshClips() { fetchClips(); }
+
+        start();
     </script>
 </body>
 </html>
