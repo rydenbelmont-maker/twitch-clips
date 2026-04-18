@@ -30,7 +30,7 @@
             muted: false,
             // When using a local file, we leave 'parent' empty or use an asterisk 
             // but Twitch embeds are very picky with file:/// 
-            parent: ["localhost"] 
+            parent: ["rydenbelmont-maker.github.io"] 
         };
 
         const player = new Twitch.Player("player-container", options);
