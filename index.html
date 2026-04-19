@@ -57,7 +57,6 @@
             accessToken: 'k1qc1ekg9n61r1h3qa779sposci95t'
         };
 
-        // Simple spinner component to replace missing Loader2
         const Spinner = ({ className = "w-8 h-8" }) => (
             <div className={`border-2 border-purple-600 border-t-transparent rounded-full animate-spin ${className}`}></div>
         );
@@ -68,16 +67,14 @@
             const [loading, setLoading] = useState(true);
             const [showMenu, setShowMenu] = useState(false);
             
-            // Search UI State
             const [searchQuery, setSearchQuery] = useState('');
             const [searchResults, setSearchResults] = useState([]);
             const [searching, setSearching] = useState(false);
 
-            // Settings State
             const [settings, setSettings] = useState({
                 duration: 60,
                 range: 100,
-                timeRange: 'all', // all, 7d, 30d, year
+                timeRange: 'all',
                 excludedIds: [],
                 includedIds: [],
                 shuffle: true
@@ -105,14 +102,15 @@
             };
 
             const searchClips = async (query) => {
-                if (!query) {
+                if (!query || query.length < 2) {
                     setSearchResults([]);
                     return;
                 }
                 setSearching(true);
                 try {
+                    // Fetch up to 100 clips to search against for a broader result set
                     const response = await fetch(
-                        `https://api.twitch.tv/helix/clips?broadcaster_id=${CONFIG.broadcasterId}&first=20`, 
+                        `https://api.twitch.tv/helix/clips?broadcaster_id=${CONFIG.broadcasterId}&first=100`, 
                         {
                             headers: {
                                 'Client-ID': CONFIG.clientId,
@@ -121,7 +119,9 @@
                         }
                     );
                     const data = await response.json();
-                    const filtered = data.data.filter(c => c.title.toLowerCase().includes(query.toLowerCase()));
+                    const filtered = data.data.filter(c => 
+                        c.title.toLowerCase().includes(query.toLowerCase())
+                    );
                     setSearchResults(filtered);
                 } catch (err) {
                     console.error("Search failed", err);
@@ -159,10 +159,12 @@
                     const data = await response.json();
                     let clips = data.data || [];
 
-                    // Apply ID-based filters
+                    // Priority 1: If user has selected "Include" clips, only use those
                     if (settings.includedIds.length > 0) {
                         clips = clips.filter(c => settings.includedIds.includes(c.id));
                     }
+                    
+                    // Priority 2: Filter out "Exclude" clips
                     if (settings.excludedIds.length > 0) {
                         clips = clips.filter(c => !settings.excludedIds.includes(c.id));
                     }
@@ -182,28 +184,34 @@
                 }
             }, [settings]);
 
+            // Initial load
             useEffect(() => { pickRandomClip(); }, []);
 
+            // Auto-transition timer logic
             useEffect(() => {
                 if (timerRef.current) clearInterval(timerRef.current);
-                timerRef.current = setInterval(() => { pickRandomClip(); }, settings.duration * 1000);
+                timerRef.current = setInterval(() => { 
+                    pickRandomClip(); 
+                }, settings.duration * 1000);
                 return () => clearInterval(timerRef.current);
             }, [settings.duration, pickRandomClip]);
 
             const getEmbedUrl = (c) => {
                 if (!c) return '';
                 const host = window.location.hostname;
+                // Added autoplay=true and parent parameters for seamless loading
                 return `${c.embed_url}&parent=${host}&parent=rydenbelmont-maker.github.io&autoplay=true&muted=false`;
             };
 
             const toggleId = (id, listKey) => {
-                const newList = settings[listKey].includes(id)
-                    ? settings[listKey].filter(i => i !== id)
-                    : [...settings[listKey], id];
-                setSettings({ ...settings, [listKey]: newList });
+                setSettings(prev => {
+                    const newList = prev[listKey].includes(id)
+                        ? prev[listKey].filter(i => i !== id)
+                        : [...prev[listKey], id];
+                    return { ...prev, [listKey]: newList };
+                });
             };
 
-            // Trigger icon refresh on render
             useEffect(() => {
                 if (typeof lucide !== 'undefined') {
                     lucide.createIcons();
@@ -212,14 +220,12 @@
 
             return (
                 <div className="relative w-full h-full group overflow-hidden bg-black">
-                    {/* Settings Trigger */}
                     <div className="absolute top-0 left-0 w-32 h-32 z-[100] settings-trigger flex items-start p-6">
                         <button onClick={() => setShowMenu(true)} className="bg-black/40 hover:bg-black/80 p-3 rounded-2xl border border-white/10 backdrop-blur-md transition-all text-white/40 hover:text-white">
                             <i data-lucide="settings" className="w-6 h-6"></i>
                         </button>
                     </div>
 
-                    {/* Pro Settings Menu */}
                     {showMenu && (
                         <div className="absolute inset-0 z-[200] bg-black/95 backdrop-blur-2xl flex items-center justify-center p-4">
                             <div className="w-full max-w-4xl max-h-[90vh] bg-zinc-900 border border-white/10 rounded-[3rem] p-8 md:p-12 space-y-8 shadow-2xl relative overflow-hidden flex flex-col">
@@ -233,15 +239,14 @@
                                 </div>
 
                                 <div className="grid md:grid-cols-2 gap-10 overflow-hidden">
-                                    {/* Left: General Settings */}
                                     <div className="space-y-6">
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Clip Duration</label>
+                                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Auto-Rotate (Sec)</label>
                                                 <input type="number" value={settings.duration} onChange={(e) => setSettings({...settings, duration: Number(e.target.value)})} className="w-full bg-black border border-white/5 rounded-2xl px-4 py-3 text-sm focus:ring-1 focus:ring-purple-500 outline-none"/>
                                             </div>
                                             <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Time Range</label>
+                                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Time Window</label>
                                                 <select value={settings.timeRange} onChange={(e) => setSettings({...settings, timeRange: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl px-4 py-3 text-xs focus:ring-1 focus:ring-purple-500 outline-none appearance-none">
                                                     <option value="all">Featured / All Time</option>
                                                     <option value="7d">Last 7 Days</option>
@@ -252,15 +257,18 @@
                                         </div>
 
                                         <div className="space-y-4">
-                                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex justify-between">
-                                                Manage Selection <span>{settings.includedIds.length} Included / {settings.excludedIds.length} Excluded</span>
+                                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">
+                                                Search All Clips
                                             </label>
                                             <div className="relative">
                                                 <input 
                                                     type="text" 
-                                                    placeholder="Search clips to pin or ban..." 
+                                                    placeholder="Find specific clips..." 
                                                     value={searchQuery}
-                                                    onChange={(e) => {setSearchQuery(e.target.value); searchClips(e.target.value);}}
+                                                    onChange={(e) => {
+                                                        setSearchQuery(e.target.value); 
+                                                        searchClips(e.target.value);
+                                                    }}
                                                     className="w-full bg-black border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-xs focus:ring-1 focus:ring-purple-500 outline-none"
                                                 />
                                                 <i data-lucide="search" className="absolute left-4 top-4 text-zinc-600 w-4 h-4"></i>
@@ -269,50 +277,56 @@
                                             <div className="h-64 overflow-y-auto custom-scrollbar space-y-2 pr-2">
                                                 {searching ? (
                                                     <div className="text-center py-10"><Spinner className="mx-auto" /></div>
-                                                ) : searchResults.map(c => (
-                                                    <div key={c.id} className="bg-black/50 p-2 rounded-xl border border-white/5 flex items-center gap-3">
-                                                        <img src={c.thumbnail_url} className="w-16 h-10 rounded-lg object-cover" />
-                                                        <div className="flex-1 overflow-hidden">
-                                                            <p className="text-[10px] font-bold truncate text-white">{c.title}</p>
-                                                            <p className="text-[8px] text-zinc-500">{new Date(c.created_at).toLocaleDateString()}</p>
+                                                ) : searchResults.length > 0 ? (
+                                                    searchResults.map(c => (
+                                                        <div key={c.id} className="bg-black/50 p-2 rounded-xl border border-white/5 flex items-center gap-3">
+                                                            <img src={c.thumbnail_url} className="w-16 h-10 rounded-lg object-cover" />
+                                                            <div className="flex-1 overflow-hidden">
+                                                                <p className="text-[10px] font-bold truncate text-white">{c.title}</p>
+                                                            </div>
+                                                            <div className="flex gap-1">
+                                                                <button 
+                                                                    title="Only play this"
+                                                                    onClick={() => toggleId(c.id, 'includedIds')}
+                                                                    className={`p-1.5 rounded-lg border transition-all ${settings.includedIds.includes(c.id) ? 'bg-green-500 border-green-400 text-white' : 'border-white/10 text-zinc-600 hover:text-green-500'}`}
+                                                                ><i data-lucide="check" className="w-3 h-3"></i></button>
+                                                                <button 
+                                                                    title="Ban this clip"
+                                                                    onClick={() => toggleId(c.id, 'excludedIds')}
+                                                                    className={`p-1.5 rounded-lg border transition-all ${settings.excludedIds.includes(c.id) ? 'bg-red-500 border-red-400 text-white' : 'border-white/10 text-zinc-600 hover:text-red-500'}`}
+                                                                ><i data-lucide="slash" className="w-3 h-3"></i></button>
+                                                            </div>
                                                         </div>
-                                                        <div className="flex gap-1">
-                                                            <button 
-                                                                onClick={() => toggleId(c.id, 'includedIds')}
-                                                                className={`p-1.5 rounded-lg border transition-all ${settings.includedIds.includes(c.id) ? 'bg-green-500 border-green-400 text-white' : 'border-white/10 text-zinc-600 hover:text-green-500'}`}
-                                                            ><i data-lucide="check" className="w-3 h-3"></i></button>
-                                                            <button 
-                                                                onClick={() => toggleId(c.id, 'excludedIds')}
-                                                                className={`p-1.5 rounded-lg border transition-all ${settings.excludedIds.includes(c.id) ? 'bg-red-500 border-red-400 text-white' : 'border-white/10 text-zinc-600 hover:text-red-500'}`}
-                                                            ><i data-lucide="slash" className="w-3 h-3"></i></button>
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                                    ))
+                                                ) : searchQuery.length > 1 ? (
+                                                    <div className="text-center py-10 text-[10px] text-zinc-600 uppercase font-bold tracking-widest">No matching clips found</div>
+                                                ) : (
+                                                    <div className="text-center py-10 text-[10px] text-zinc-700 uppercase font-bold tracking-widest">Start typing to search...</div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
 
-                                    {/* Right: Active Filters Summary */}
                                     <div className="bg-black/30 rounded-[2rem] border border-white/5 p-6 flex flex-col">
-                                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4">Live Ruleset</label>
+                                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4">Active Session Rules</label>
                                         <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4 pr-2 text-[11px]">
                                             <div className="p-4 bg-purple-600/5 border border-purple-500/20 rounded-2xl">
-                                                <p className="text-zinc-400 mb-1">Rotation Speed</p>
-                                                <p className="text-white font-bold">{settings.duration} seconds per clip</p>
+                                                <p className="text-zinc-400 mb-1">Rotation Interval</p>
+                                                <p className="text-white font-bold">{settings.duration}s</p>
                                             </div>
-                                            <div className="p-4 bg-zinc-800/30 border border-white/5 rounded-2xl">
-                                                <p className="text-zinc-400 mb-1">Source Window</p>
-                                                <p className="text-white font-bold capitalize">{settings.timeRange.replace('d', ' days')}</p>
-                                            </div>
-                                            {settings.includedIds.length > 0 && (
-                                                <div className="p-4 bg-green-500/5 border border-green-500/20 rounded-2xl">
-                                                    <p className="text-green-500 font-bold mb-2 uppercase text-[9px]">Exclusive Playback List</p>
-                                                    <p className="text-zinc-400 leading-relaxed italic">Only showing {settings.includedIds.length} specific clips.</p>
+                                            <div className="p-4 bg-zinc-800/30 border border-white/5 rounded-2xl flex justify-between items-center">
+                                                <div>
+                                                    <p className="text-zinc-400 mb-1">Included</p>
+                                                    <p className="text-green-500 font-bold">{settings.includedIds.length} clips</p>
                                                 </div>
-                                            )}
+                                                <div className="text-right">
+                                                    <p className="text-zinc-400 mb-1">Banned</p>
+                                                    <p className="text-red-500 font-bold">{settings.excludedIds.length} clips</p>
+                                                </div>
+                                            </div>
                                         </div>
                                         <button onClick={() => { pickRandomClip(); setShowMenu(false); }} className="w-full bg-white text-black py-5 mt-6 rounded-2xl font-black text-xs uppercase tracking-[0.3em] hover:bg-purple-500 hover:text-white transition-all shadow-2xl">
-                                            Deploy Changes
+                                            Update Player
                                         </button>
                                     </div>
                                 </div>
@@ -320,19 +334,22 @@
                         </div>
                     )}
 
-                    {/* Clip Player */}
                     {clip ? (
-                        <iframe key={clip.id} src={getEmbedUrl(clip)} allowFullScreen className="absolute inset-0 w-full h-full"></iframe>
+                        <iframe 
+                            key={clip.id} // Changing the key forces the iframe to reload and autoplay
+                            src={getEmbedUrl(clip)} 
+                            allowFullScreen 
+                            className="absolute inset-0 w-full h-full"
+                        ></iframe>
                     ) : (
                         <div className="w-full h-full flex items-center justify-center bg-black"><Spinner className="w-12 h-12" /></div>
                     )}
 
-                    {/* Bottom Info Overlay */}
                     {clip && !showMenu && (
                         <div className="absolute bottom-0 left-0 w-full h-1/3 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none flex items-end p-6 md:p-12">
                             <div className="max-w-4xl animate-in fade-in slide-in-from-bottom-4 duration-1000">
                                 <div className="flex items-center gap-3 mb-3">
-                                    <span className="bg-purple-600 text-[9px] font-black px-2.5 py-1 rounded-sm uppercase tracking-widest">High Highlight</span>
+                                    <span className="bg-purple-600 text-[9px] font-black px-2.5 py-1 rounded-sm uppercase tracking-widest">Highlight Feed</span>
                                     <span className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em]">{clip.creator_name}</span>
                                 </div>
                                 <h2 className="text-3xl md:text-6xl font-black text-white tracking-tighter leading-[0.9] drop-shadow-2xl">{clip.title}</h2>
@@ -345,7 +362,6 @@
                         </div>
                     )}
 
-                    {/* Game Art */}
                     {gameArt && !showMenu && (
                         <div className="absolute bottom-8 right-8 md:bottom-12 md:right-12 w-24 md:w-36 game-art-float pointer-events-none">
                             <div className="p-1.5 bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl ring-1 ring-white/20 overflow-hidden">
