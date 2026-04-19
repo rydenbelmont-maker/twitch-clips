@@ -1,135 +1,367 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Ryden Belmont - Clip Scene</title>
-    <script src="https://embed.twitch.tv/embed/v1.js"></script>
-    <style>
-        body { margin: 0; background: #000; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
-        #player-container { width: 100vw; height: 100vh; }
-        
-        /* The Invisible Menu - Hover top-left in OBS Interact to see */
-        #controls {
-            position: absolute; top: 0; left: 0; width: 220px; padding: 15px;
-            background: rgba(15, 15, 15, 0.95); color: white; opacity: 0; 
-            transition: opacity 0.3s; z-index: 9999; border: 1px solid #9147ff;
+import React, { useState, useEffect, useCallback } from 'react';
+import { Play, Calendar, Eye, Share2, ExternalLink, RefreshCcw, Loader2, ChevronDown, Clock, AlertCircle, ShieldAlert, Settings, Globe, CheckCircle2 } from 'lucide-react';
+
+const CONFIG = {
+  broadcasterId: '635887962',
+  clientId: 'mdizqkgtl6tar5h4si6hsikyxcvo1c',
+  accessToken: 'k1qc1ekg9n61r1h3qa779sposci95t'
+};
+
+const App = () => {
+  const [clips, setClips] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState(null);
+  const [debugInfo, setDebugInfo] = useState(null);
+  const [selectedClip, setSelectedClip] = useState(null);
+  const [pagination, setPagination] = useState(null);
+  const [timeFilter, setTimeFilter] = useState('all');
+  const [showSettings, setShowSettings] = useState(false);
+  const [customToken, setCustomToken] = useState(CONFIG.accessToken);
+
+  const getStartedAt = (filter) => {
+    const now = new Date();
+    if (filter === 'week') {
+      now.setDate(now.getDate() - 7);
+      return now.toISOString();
+    }
+    if (filter === 'month') {
+      now.setMonth(now.getMonth() - 1);
+      return now.toISOString();
+    }
+    return null;
+  };
+
+  const fetchClips = useCallback(async (isLoadMore = false) => {
+    if (isLoadMore) setLoadingMore(true);
+    else {
+      setLoading(true);
+      setClips([]);
+    }
+    
+    setError(null);
+    setDebugInfo(null);
+
+    try {
+      const params = new URLSearchParams({
+        broadcaster_id: CONFIG.broadcasterId,
+        first: '20',
+      });
+
+      const startedAt = getStartedAt(timeFilter);
+      if (startedAt) params.append('started_at', startedAt);
+      if (isLoadMore && pagination?.cursor) params.append('after', pagination.cursor);
+
+      const response = await fetch(`https://api.twitch.tv/helix/clips?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Client-ID': CONFIG.clientId,
+          'Authorization': `Bearer ${customToken.trim()}`
         }
-        #controls:hover { opacity: 1; }
-        .setting { margin-bottom: 12px; }
-        label { display: block; font-size: 11px; color: #adadb8; margin-bottom: 4px; text-transform: uppercase; }
-        select, input, button { width: 100%; background: #000; color: white; border: 1px solid #464649; padding: 8px; border-radius: 4px; box-sizing: border-box; }
-        button { background: #9147ff; border: none; color: white; padding: 10px; cursor: pointer; font-weight: bold; margin-top: 5px; }
-        button:hover { background: #772ce8; }
-        #status { font-size: 10px; color: #9147ff; margin-bottom: 8px; font-family: monospace; }
-    </style>
-</head>
-<body>
+      });
 
-    <div id="controls">
-        <div id="status">Status: Initializing...</div>
-        <div class="setting">
-            <label>Filter Mode</label>
-            <select id="mode">
-                <option value="trending">Top Clips (All Time)</option>
-                <option value="fresh">Fresh (Last 7 Days)</option>
-                <option value="shuffle">Random Shuffle</option>
-            </select>
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Unreadable error' }));
+        setDebugInfo({ 
+          status: response.status, 
+          message: errorData.message,
+          hint: response.status === 401 ? "Token Expired. Refresh your Access Token." : "Check Client ID."
+        });
+        throw new Error(errorData.message || `API Error ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (isLoadMore) {
+        setClips(prev => [...prev, ...data.data]);
+      } else {
+        setClips(data.data);
+        if (data.data.length > 0 && !selectedClip) setSelectedClip(data.data[0]);
+      }
+      
+      setPagination(data.pagination);
+    } catch (err) {
+      if (err.name === 'TypeError') {
+        setError('Network Blocked (CORS)');
+        setDebugInfo({
+          type: 'Browser Handshake Failed',
+          suggestion: 'Twitch is refusing the connection. This usually happens if the Access Token is invalid or an ad-blocker is active.'
+        });
+      } else {
+        setError(err.message);
+      }
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }, [timeFilter, pagination?.cursor, customToken, selectedClip]);
+
+  useEffect(() => {
+    fetchClips();
+  }, [timeFilter]);
+
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
+  const getEmbedUrl = (clip) => {
+    if (!clip) return '';
+    
+    // TWITCH EMBED LOGIC:
+    // The 'parent' parameter is required for the video to play.
+    // It must match the hostname of the page where the iframe is embedded.
+    
+    const host = window.location.hostname;
+    
+    // We create a list of potential parents to cover local, github, and preview environments
+    const domains = new Set();
+    
+    if (host) domains.add(host);
+    domains.add('rydenbelmont-maker.github.io');
+    domains.add('localhost');
+    
+    // If we're in a specialized preview environment (like this one), 
+    // we sometimes need to extract the base domain from the host.
+    if (host.includes('.')) {
+        const parts = host.split('.');
+        if (parts.length > 2) {
+            domains.add(parts.slice(-2).join('.'));
+        }
+    }
+
+    let urlString = clip.embed_url;
+    // Append each domain as a separate parent parameter
+    domains.forEach(domain => {
+      if (domain) urlString += `&parent=${domain}`;
+    });
+
+    // Add quality of life parameters
+    urlString += "&autoplay=true&muted=false";
+
+    return urlString;
+  };
+
+  return (
+    <div className="min-h-screen bg-[#050505] text-zinc-100 font-sans selection:bg-purple-500/30">
+      {/* Top Header */}
+      <header className="border-b border-white/5 bg-black/60 backdrop-blur-xl sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/20 ring-1 ring-white/10">
+              <Play className="fill-white ml-0.5" size={18} />
+            </div>
+            <div>
+              <h1 className="font-bold text-base leading-tight">Ryden Belmont</h1>
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                <p className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-black">Twitch Clip Viewer</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <div className="hidden sm:flex bg-zinc-900/80 p-1 rounded-xl border border-white/5">
+              {['all', 'month', 'week'].map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setTimeFilter(f)}
+                  className={`px-4 py-1.5 rounded-lg text-[10px] font-black tracking-widest transition-all ${
+                    timeFilter === f ? 'bg-zinc-800 text-white shadow-xl' : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  {f.toUpperCase()}
+                </button>
+              ))}
+            </div>
+            <button 
+              onClick={() => setShowSettings(!showSettings)}
+              className={`p-2.5 rounded-xl transition-all border ${showSettings ? 'bg-purple-600 border-purple-400 text-white' : 'bg-zinc-900 border-white/5 text-zinc-400 hover:text-white'}`}
+            >
+              <Settings size={18} />
+            </button>
+          </div>
         </div>
-        <div class="setting">
-            <label>Exclude Keyword</label>
-            <input type="text" id="exclude" placeholder="e.g. 'horror'">
+      </header>
+
+      {/* Connection Info Panel */}
+      {showSettings && (
+        <div className="bg-zinc-900/90 border-b border-white/5 p-8 animate-in slide-in-from-top duration-500">
+          <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-10">
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-purple-400 font-bold text-xs uppercase tracking-wider">
+                <ShieldAlert size={14} /> API Configuration
+              </div>
+              <div className="space-y-3">
+                <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-tight">Access Token</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="password"
+                    value={customToken}
+                    onChange={(e) => setCustomToken(e.target.value)}
+                    className="flex-1 bg-black border border-white/10 rounded-xl px-4 py-2 text-xs text-purple-200 focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all font-mono"
+                  />
+                  <button 
+                    onClick={() => fetchClips()}
+                    className="bg-purple-600 hover:bg-purple-500 px-4 rounded-xl text-xs font-bold transition-all"
+                  >
+                    Update
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-blue-400 font-bold text-xs uppercase tracking-wider">
+                <Globe size={14} /> Embed Security
+              </div>
+              <div className="bg-black/40 border border-white/5 p-4 rounded-2xl space-y-2">
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-zinc-500">Parent Domain:</span>
+                  <span className="text-white font-mono">{window.location.hostname || 'None'}</span>
+                </div>
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-zinc-500">Status:</span>
+                  <span className={error ? "text-red-400" : "text-green-400"}>{error ? "API Blocked" : "API Ready"}</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        <button onclick="refreshClips()">UPDATE SCENE</button>
-    </div>
+      )}
 
-    <div id="player-container"></div>
-
-    <script>
-        const CLIENT_ID = 'mdizqkgtl6tar5h4si6hsikyxcvo1c';
-        const ACCESS_TOKEN = 'k1qc1ekg9n61r1h3qa779sposci95t';
-        const BROADCASTER_ID = '635887962';
-
-        let clips = [];
-        let currentIndex = 0;
-        let player = null;
-
-        async function fetchClips() {
-            log("Fetching...");
-            const mode = document.getElementById('mode').value;
-            const excludeTerm = document.getElementById('exclude').value.toLowerCase();
+      <main className="max-w-7xl mx-auto px-6 py-10">
+        {error ? (
+          <div className="flex flex-col items-center justify-center py-24 text-center space-y-8">
+            <div className="w-24 h-24 bg-red-500/10 rounded-full flex items-center justify-center border border-red-500/20">
+              <AlertCircle className="text-red-500" size={48} />
+            </div>
+            <div className="space-y-3 max-w-md">
+              <h2 className="text-3xl font-black text-white tracking-tighter">Handshake Refused</h2>
+              <p className="text-zinc-400 text-sm leading-relaxed">
+                The Twitch API list is failing. Check your Access Token.
+              </p>
+            </div>
             
-            let url = `https://api.twitch.tv/helix/clips?broadcaster_id=${BROADCASTER_ID}&first=100`;
+            {debugInfo && (
+              <div className="bg-zinc-900/50 border border-white/5 p-6 rounded-3xl text-left w-full max-w-lg">
+                <p className="text-[10px] font-black text-purple-500 uppercase tracking-widest mb-3">Diagnostic report</p>
+                <div className="space-y-3 font-mono text-[11px]">
+                  <div className="flex justify-between border-b border-white/5 pb-2">
+                    <span className="text-zinc-500">API Status:</span>
+                    <span className="text-red-400 font-bold">{debugInfo.status || 'Error'}</span>
+                  </div>
+                  <p className="text-zinc-300">{debugInfo.hint || debugInfo.suggestion}</p>
+                </div>
+              </div>
+            )}
 
-            if (mode === 'fresh') {
-                let lastWeek = new Date();
-                lastWeek.setDate(lastWeek.getDate() - 7);
-                url += `&started_at=${lastWeek.toISOString()}`;
-            }
+            <button onClick={() => fetchClips()} className="flex items-center gap-3 bg-white text-black hover:bg-zinc-200 px-10 py-4 rounded-full font-black text-xs uppercase tracking-widest transition-all shadow-xl shadow-white/5">
+              <RefreshCcw size={16} /> Retry API Fetch
+            </button>
+          </div>
+        ) : (
+          <div className="grid lg:grid-cols-12 gap-12">
+            {/* Player */}
+            <div className="lg:col-span-8 space-y-8">
+              {!clips.length && loading ? (
+                <div className="aspect-video bg-zinc-900/30 rounded-[3rem] flex items-center justify-center border border-white/5">
+                  <Loader2 className="animate-spin text-purple-600" size={48} />
+                </div>
+              ) : selectedClip ? (
+                <div className="space-y-8 animate-in fade-in duration-700">
+                  <div className="relative aspect-video bg-black rounded-[2.5rem] overflow-hidden shadow-2xl ring-1 ring-white/10">
+                    <iframe
+                      key={selectedClip.id}
+                      src={getEmbedUrl(selectedClip)}
+                      className="absolute inset-0 w-full h-full"
+                      allowFullScreen
+                      title={selectedClip.title}
+                    />
+                  </div>
+                  
+                  <div className="bg-zinc-900/20 p-10 rounded-[3rem] border border-white/5 backdrop-blur-md">
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-3">
+                         <span className="flex items-center gap-1.5 px-3 py-1 bg-green-500/10 text-green-500 text-[10px] font-black rounded-full border border-green-500/20">
+                           <CheckCircle2 size={12} /> Video Player Active
+                         </span>
+                         <span className="text-[10px] text-zinc-600 font-bold">SLUG: {selectedClip.id}</span>
+                      </div>
+                      <h2 className="text-4xl font-black text-white tracking-tighter leading-none">{selectedClip.title}</h2>
+                      <div className="flex flex-wrap items-center gap-6 text-[11px] font-black uppercase tracking-widest text-zinc-500 pt-2">
+                        <div className="flex items-center gap-2 text-purple-400">
+                          <Eye size={16} /> {selectedClip.view_count.toLocaleString()}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Clock size={16} /> {formatDate(selectedClip.created_at)}
+                        </div>
+                        <div>By <span className="text-white ml-1">{selectedClip.creator_name}</span></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                 <div className="aspect-video bg-zinc-900/10 rounded-[2.5rem] flex items-center justify-center border border-white/5">
+                    <p className="text-zinc-600 font-bold uppercase tracking-widest text-xs">Waiting for clip data...</p>
+                 </div>
+              )}
+            </div>
 
-            try {
-                const response = await fetch(url, {
-                    headers: {
-                        'Client-ID': CLIENT_ID,
-                        'Authorization': `Bearer ${ACCESS_TOKEN}`
-                    }
-                });
-                const data = await response.json();
+            {/* List */}
+            <div className="lg:col-span-4 space-y-6">
+              <h3 className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.3em] px-2">Archive Feed</h3>
+              <div className="space-y-4 max-h-[calc(100vh-18rem)] overflow-y-auto pr-4 custom-scrollbar">
+                {clips.map((clip) => (
+                  <button
+                    key={clip.id}
+                    onClick={() => { setSelectedClip(clip); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    className={`flex w-full text-left gap-4 p-4 rounded-[2rem] transition-all group relative border ${
+                      selectedClip?.id === clip.id 
+                        ? 'bg-purple-600/10 border-purple-500/40 shadow-2xl' 
+                        : 'hover:bg-white/5 border-transparent'
+                    }`}
+                  >
+                    <div className="relative w-28 h-16 shrink-0">
+                      <img src={clip.thumbnail_url} alt={clip.title} className="w-full h-full object-cover rounded-2xl" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all rounded-2xl">
+                        <Play size={20} className="fill-white" />
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0 py-1">
+                      <h4 className={`text-[13px] font-bold leading-tight line-clamp-2 mb-2 ${selectedClip?.id === clip.id ? 'text-purple-400' : 'text-zinc-200 group-hover:text-white'}`}>
+                        {clip.title}
+                      </h4>
+                      <div className="text-[9px] text-zinc-500 font-black uppercase tracking-tighter flex items-center gap-2">
+                        <span>{clip.view_count.toLocaleString()} Views</span>
+                        <span className="w-1 h-1 rounded-full bg-zinc-800"></span>
+                        <span>{new Date(clip.created_at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
                 
-                if (!data.data || data.data.length === 0) {
-                    log("No clips found.");
-                    return;
-                }
+                {pagination?.cursor && (
+                  <button onClick={() => fetchClips(true)} className="w-full py-8 text-[10px] font-black uppercase tracking-[0.3em] text-zinc-600 hover:text-white transition-all bg-white/5 rounded-[2.5rem] border border-dashed border-white/10 mt-4">
+                    {loadingMore ? <Loader2 className="animate-spin mx-auto" size={16} /> : "Load More"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
 
-                clips = data.data;
+      <style dangerouslySetInnerHTML={{ __html: `
+        .custom-scrollbar::-webkit-scrollbar { width: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #222; border-radius: 10px; }
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+        .animate-in { animation: fade-in 0.5s ease-out; }
+      `}} />
+    </div>
+  );
+};
 
-                // Filter
-                if (excludeTerm) {
-                    clips = clips.filter(c => !c.title.toLowerCase().includes(excludeTerm));
-                }
-
-                // Shuffle
-                if (mode === 'shuffle') {
-                    clips.sort(() => Math.random() - 0.5);
-                }
-
-                log(`${clips.length} Clips Loaded`);
-                playClip(0);
-
-            } catch (err) {
-                log("API Error.");
-                console.error(err);
-            }
-        }
-
-        function playClip(index) {
-            const clipId = clips[index].id;
-            
-            if (!player) {
-                player = new Twitch.Player("player-container", {
-                    width: '100%',
-                    height: '100%',
-                    clip: clipId,
-                    autoplay: true,
-                    muted: false,
-                    parent: ["rydenbelmont-maker.github.io"]
-                });
-
-                player.addEventListener(Twitch.Player.ENDED, () => {
-                    currentIndex = (currentIndex + 1) % clips.length;
-                    player.setClip(clips[currentIndex].id);
-                });
-            } else {
-                player.setClip(clipId);
-            }
-        }
-
-        function refreshClips() {
-            currentIndex = 0;
-            fetchClips();
-        }
-
-        function log(msg) { document.getElementById('status').innerText = "Status: " + msg; }
-
-        window.onload = fetchClips;
-    </script>
-</body>
-</html>
+export default App;
