@@ -32,9 +32,11 @@
         }
         .game-art-float { animation: float 4s ease-in-out infinite; }
         
+        /* Hidden settings area - only visible on hover */
         .settings-trigger {
             opacity: 0;
             transition: opacity 0.3s ease;
+            cursor: pointer;
         }
         .settings-trigger:hover {
             opacity: 1;
@@ -66,16 +68,15 @@
             const [gameArt, setGameArt] = useState(null);
             const [loading, setLoading] = useState(true);
             const [showMenu, setShowMenu] = useState(false);
-            const [hasInteracted, setHasInteracted] = useState(false);
             
             const [searchQuery, setSearchQuery] = useState('');
-            const [searchResults, setSearchResults] = useState([]);
+            const [fullClipCache, setFullClipCache] = useState([]); // Database for searching
             const [searching, setSearching] = useState(false);
 
             const [settings, setSettings] = useState({
                 duration: 60,
                 range: 100,
-                timeRange: 'all',
+                timeRange: 'all', // all, 7d, 30d, year
                 excludedIds: [],
                 includedIds: [],
                 shuffle: true
@@ -83,6 +84,7 @@
 
             const timerRef = useRef(null);
 
+            // Fetch game art for the current clip
             const fetchGameArt = async (gameId) => {
                 if (!gameId) return;
                 try {
@@ -102,16 +104,13 @@
                 }
             };
 
-            const searchClips = async (query) => {
-                if (!query || query.length < 2) {
-                    setSearchResults([]);
-                    return;
-                }
+            // Deep search database builder
+            const buildSearchDatabase = async () => {
                 setSearching(true);
                 try {
-                    let allFetchedClips = [];
+                    let clips = [];
                     let cursor = '';
-                    
+                    // Fetch up to 500 clips for a thorough search pool
                     for (let i = 0; i < 5; i++) {
                         const url = `https://api.twitch.tv/helix/clips?broadcaster_id=${CONFIG.broadcasterId}&first=100${cursor ? `&after=${cursor}` : ''}`;
                         const response = await fetch(url, {
@@ -121,17 +120,13 @@
                             }
                         });
                         const data = await response.json();
-                        allFetchedClips = [...allFetchedClips, ...data.data];
+                        clips = [...clips, ...data.data];
                         cursor = data.pagination?.cursor;
                         if (!cursor) break;
                     }
-
-                    const filtered = allFetchedClips.filter(c => 
-                        c.title.toLowerCase().includes(query.toLowerCase())
-                    );
-                    setSearchResults(filtered);
+                    setFullClipCache(clips);
                 } catch (err) {
-                    console.error("Search failed", err);
+                    console.error("Database build failed", err);
                 } finally {
                     setSearching(false);
                 }
@@ -166,20 +161,25 @@
                     const data = await response.json();
                     let clipsPool = data.data || [];
 
+                    // Apply filters
                     if (settings.includedIds.length > 0) {
+                        // Only play clips in the inclusion list
                         clipsPool = clipsPool.filter(c => settings.includedIds.includes(c.id));
+                        
+                        // If no included clips found in the current date range, fetch them specifically
                         if (clipsPool.length === 0) {
-                             const specificRes = await fetch(`https://api.twitch.tv/helix/clips?id=${settings.includedIds.join('&id=')}`, {
+                            const specificRes = await fetch(`https://api.twitch.tv/helix/clips?id=${settings.includedIds.join('&id=')}`, {
                                 headers: {
                                     'Client-ID': CONFIG.clientId,
                                     'Authorization': `Bearer ${CONFIG.accessToken}`
                                 }
-                             });
-                             const specificData = await specificRes.json();
-                             clipsPool = specificData.data || [];
+                            });
+                            const specificData = await specificRes.json();
+                            clipsPool = specificData.data || [];
                         }
                     }
                     
+                    // Filter out banned clips
                     if (settings.excludedIds.length > 0) {
                         clipsPool = clipsPool.filter(c => !settings.excludedIds.includes(c.id));
                     }
@@ -193,29 +193,30 @@
                         fetchGameArt(nextClip.game_id);
                     }
                 } catch (err) {
-                    console.error("Fetch failed", err);
+                    console.error("Rotation failed", err);
                 } finally {
                     setLoading(false);
                 }
             }, [settings]);
 
+            // Load on startup immediately
             useEffect(() => { 
-                if (hasInteracted) pickRandomClip(); 
-            }, [hasInteracted]);
+                pickRandomClip(); 
+            }, []);
 
+            // Handle the transition timer
             useEffect(() => {
-                if (!hasInteracted) return;
                 if (timerRef.current) clearInterval(timerRef.current);
                 timerRef.current = setInterval(() => { 
                     pickRandomClip(); 
                 }, settings.duration * 1000);
                 return () => clearInterval(timerRef.current);
-            }, [settings.duration, pickRandomClip, hasInteracted]);
+            }, [settings.duration, pickRandomClip]);
 
             const getEmbedUrl = (c) => {
                 if (!c) return '';
                 const host = window.location.hostname;
-                // Standardizing the embed URL with essential autoplay and muted parameters
+                // Important: autoplay=true and parent domain for embedding
                 return `${c.embed_url}&parent=${host}&parent=rydenbelmont-maker.github.io&autoplay=true&muted=false`;
             };
 
@@ -234,81 +235,63 @@
                 }
             });
 
-            // Interaction Overlay to "Unlock" Autoplay
-            if (!hasInteracted) {
-                return (
-                    <div className="w-full h-full flex items-center justify-center bg-black">
-                        <div className="text-center space-y-6 animate-in fade-in zoom-in duration-500">
-                            <div className="w-20 h-20 bg-purple-600 rounded-full flex items-center justify-center mx-auto shadow-2xl shadow-purple-500/20">
-                                <i data-lucide="play" className="text-white fill-white w-8 h-8 ml-1"></i>
-                            </div>
-                            <div className="space-y-2">
-                                <h1 className="text-3xl font-black tracking-tighter uppercase">Ryden Belmont</h1>
-                                <p className="text-[10px] text-zinc-500 font-black tracking-[0.3em] uppercase">Archive Sync Ready</p>
-                            </div>
-                            <button 
-                                onClick={() => setHasInteracted(true)}
-                                className="bg-white text-black px-10 py-4 rounded-full font-black text-xs uppercase tracking-[0.2em] hover:bg-purple-500 hover:text-white transition-all shadow-xl"
-                            >
-                                Start Viewer
-                            </button>
-                        </div>
-                    </div>
-                );
-            }
+            // Open menu and build search database
+            const openMenu = () => {
+                setShowMenu(true);
+                if (fullClipCache.length === 0) buildSearchDatabase();
+            };
 
             return (
                 <div className="relative w-full h-full group overflow-hidden bg-black">
-                    {/* Hidden Settings Access */}
+                    {/* Settings Trigger - Hidden by default, visible on hover */}
                     <div className="absolute top-0 left-0 w-32 h-32 z-[100] settings-trigger flex items-start p-6">
-                        <button onClick={() => setShowMenu(true)} className="bg-black/40 hover:bg-black/80 p-3 rounded-2xl border border-white/10 backdrop-blur-md transition-all text-white/40 hover:text-white">
+                        <button onClick={openMenu} className="bg-black/60 hover:bg-black/90 p-3 rounded-2xl border border-white/10 backdrop-blur-md transition-all text-white/40 hover:text-white shadow-2xl">
                             <i data-lucide="settings" className="w-6 h-6"></i>
                         </button>
                     </div>
 
+                    {/* Pro Control Menu */}
                     {showMenu && (
                         <div className="absolute inset-0 z-[200] bg-black/95 backdrop-blur-2xl flex items-center justify-center p-4">
-                            <div className="w-full max-w-4xl max-h-[90vh] bg-zinc-900 border border-white/10 rounded-[3rem] p-8 md:p-12 space-y-8 shadow-2xl relative overflow-hidden flex flex-col">
+                            <div className="w-full max-w-4xl max-h-[90vh] bg-[#0c0c0e] border border-white/10 rounded-[3rem] p-8 md:p-12 space-y-8 shadow-2xl relative overflow-hidden flex flex-col">
                                 <button onClick={() => setShowMenu(false)} className="absolute top-10 right-10 text-zinc-500 hover:text-white transition-colors">
                                     <i data-lucide="x" className="w-6 h-6"></i>
                                 </button>
 
                                 <div className="space-y-1">
-                                    <h3 className="text-3xl font-black tracking-tighter text-white uppercase">Clip Management</h3>
-                                    <p className="text-[10px] text-zinc-500 font-black tracking-[0.3em] uppercase">Control Panel</p>
+                                    <h3 className="text-3xl font-black tracking-tighter text-white uppercase italic">Ryden Belmont Controller</h3>
+                                    <p className="text-[10px] text-zinc-600 font-black tracking-[0.4em] uppercase">Archive Filtering System</p>
                                 </div>
 
                                 <div className="grid md:grid-cols-2 gap-10 overflow-hidden">
                                     <div className="space-y-6">
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Rotation (Sec)</label>
+                                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Clip Length (S)</label>
                                                 <input type="number" value={settings.duration} onChange={(e) => setSettings({...settings, duration: Number(e.target.value)})} className="w-full bg-black border border-white/5 rounded-2xl px-4 py-3 text-sm focus:ring-1 focus:ring-purple-500 outline-none transition-all"/>
                                             </div>
                                             <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Filter Window</label>
+                                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Time Window</label>
                                                 <select value={settings.timeRange} onChange={(e) => setSettings({...settings, timeRange: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl px-4 py-3 text-xs focus:ring-1 focus:ring-purple-500 outline-none appearance-none cursor-pointer">
                                                     <option value="all">Featured / All Time</option>
                                                     <option value="7d">Last 7 Days</option>
-                                                    <option value="30d">Last Month</option>
+                                                    <option value="30d">Last 30 Days</option>
                                                     <option value="year">This Year</option>
                                                 </select>
                                             </div>
                                         </div>
 
                                         <div className="space-y-4">
-                                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">
-                                                Deep Search Database
+                                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex justify-between items-center">
+                                                Search Database 
+                                                {searching && <span className="animate-pulse text-purple-500">Indexing...</span>}
                                             </label>
                                             <div className="relative">
                                                 <input 
                                                     type="text" 
-                                                    placeholder="Search title to Pin or Ban..." 
+                                                    placeholder="Search to Pin or Ban specific clips..." 
                                                     value={searchQuery}
-                                                    onChange={(e) => {
-                                                        setSearchQuery(e.target.value); 
-                                                        searchClips(e.target.value);
-                                                    }}
+                                                    onChange={(e) => setSearchQuery(e.target.value)}
                                                     className="w-full bg-black border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-xs focus:ring-1 focus:ring-purple-500 outline-none transition-all"
                                                 />
                                                 <i data-lucide="search" className="absolute left-4 top-4 text-zinc-600 w-4 h-4"></i>
@@ -316,57 +299,57 @@
                                             
                                             <div className="h-64 overflow-y-auto custom-scrollbar space-y-2 pr-2">
                                                 {searching ? (
-                                                    <div className="text-center py-10"><Spinner className="mx-auto" /></div>
-                                                ) : searchResults.length > 0 ? (
-                                                    searchResults.map(c => (
-                                                        <div key={c.id} className="bg-black/50 p-2 rounded-xl border border-white/5 flex items-center gap-3 hover:border-white/10 transition-colors">
-                                                            <img src={c.thumbnail_url} className="w-16 h-10 rounded-lg object-cover shadow-lg" />
+                                                    <div className="text-center py-20"><Spinner className="mx-auto" /></div>
+                                                ) : fullClipCache.filter(c => c.title.toLowerCase().includes(searchQuery.toLowerCase())).length > 0 ? (
+                                                    fullClipCache.filter(c => c.title.toLowerCase().includes(searchQuery.toLowerCase())).map(c => (
+                                                        <div key={c.id} className="bg-black/40 p-2.5 rounded-2xl border border-white/5 flex items-center gap-4 hover:border-white/10 transition-all">
+                                                            <img src={c.thumbnail_url} className="w-16 h-10 rounded-xl object-cover shadow-lg" />
                                                             <div className="flex-1 overflow-hidden">
                                                                 <p className="text-[10px] font-bold truncate text-white">{c.title}</p>
                                                             </div>
-                                                            <div className="flex gap-1">
+                                                            <div className="flex gap-2">
                                                                 <button 
-                                                                    title="Include in Rotation"
+                                                                    title="Pin this clip"
                                                                     onClick={() => toggleId(c.id, 'includedIds')}
-                                                                    className={`p-1.5 rounded-lg border transition-all ${settings.includedIds.includes(c.id) ? 'bg-green-500 border-green-400 text-white' : 'border-white/10 text-zinc-600 hover:text-green-500'}`}
-                                                                ><i data-lucide="check" className="w-3 h-3"></i></button>
+                                                                    className={`p-2 rounded-xl border transition-all ${settings.includedIds.includes(c.id) ? 'bg-green-500 border-green-400 text-white' : 'border-white/10 text-zinc-600 hover:text-green-500'}`}
+                                                                ><i data-lucide="check" className="w-3.5 h-3.5"></i></button>
                                                                 <button 
-                                                                    title="Exclude from Rotation"
+                                                                    title="Ban this clip"
                                                                     onClick={() => toggleId(c.id, 'excludedIds')}
-                                                                    className={`p-1.5 rounded-lg border transition-all ${settings.excludedIds.includes(c.id) ? 'bg-red-500 border-red-400 text-white' : 'border-white/10 text-zinc-600 hover:text-red-500'}`}
-                                                                ><i data-lucide="slash" className="w-3 h-3"></i></button>
+                                                                    className={`p-2 rounded-xl border transition-all ${settings.excludedIds.includes(c.id) ? 'bg-red-500 border-red-400 text-white' : 'border-white/10 text-zinc-600 hover:text-red-500'}`}
+                                                                ><i data-lucide="slash" className="w-3.5 h-3.5"></i></button>
                                                             </div>
                                                         </div>
                                                     ))
-                                                ) : searchQuery.length > 1 ? (
-                                                    <div className="text-center py-10 text-[10px] text-zinc-600 uppercase font-bold tracking-widest">No matching clips found</div>
                                                 ) : (
-                                                    <div className="text-center py-10 text-[10px] text-zinc-700 uppercase font-bold tracking-widest">Type clip title to search...</div>
+                                                    <div className="text-center py-10 text-[10px] text-zinc-700 uppercase font-bold tracking-widest italic">
+                                                        {searchQuery ? "No results found" : "Type to filter your clips..."}
+                                                    </div>
                                                 )}
                                             </div>
                                         </div>
                                     </div>
 
-                                    <div className="bg-black/30 rounded-[2rem] border border-white/5 p-8 flex flex-col">
-                                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-6">Active Session</label>
-                                        <div className="flex-1 space-y-4 text-[11px]">
-                                            <div className="p-4 bg-purple-600/5 border border-purple-500/20 rounded-2xl">
-                                                <p className="text-zinc-500 mb-1 uppercase text-[8px] font-black tracking-widest">Rotation Rate</p>
-                                                <p className="text-white font-bold">{settings.duration}s per highlight</p>
+                                    <div className="bg-black/20 rounded-[2.5rem] border border-white/5 p-8 flex flex-col">
+                                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-6 italic">Configuration Sync</label>
+                                        <div className="flex-1 space-y-5 text-[11px]">
+                                            <div className="p-5 bg-purple-600/5 border border-purple-500/20 rounded-3xl">
+                                                <p className="text-zinc-500 mb-1 uppercase text-[8px] font-black tracking-widest">Playback Rotation</p>
+                                                <p className="text-white font-bold tracking-tight">{settings.duration}s cycles</p>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className={`p-4 rounded-2xl border ${settings.includedIds.length > 0 ? 'bg-green-500/5 border-green-500/20' : 'bg-zinc-800/30 border-white/5 opacity-50'}`}>
+                                            <div className="grid grid-cols-2 gap-4 text-center">
+                                                <div className={`p-5 rounded-3xl border ${settings.includedIds.length > 0 ? 'bg-green-500/5 border-green-500/20' : 'bg-white/5 border-white/5 opacity-40'}`}>
                                                     <p className="text-zinc-500 mb-1 uppercase text-[8px] font-black tracking-widest">Pinned</p>
                                                     <p className="text-white font-bold">{settings.includedIds.length}</p>
                                                 </div>
-                                                <div className={`p-4 rounded-2xl border ${settings.excludedIds.length > 0 ? 'bg-red-500/5 border-red-500/20' : 'bg-zinc-800/30 border-white/5 opacity-50'}`}>
+                                                <div className={`p-5 rounded-3xl border ${settings.excludedIds.length > 0 ? 'bg-red-500/5 border-red-500/20' : 'bg-white/5 border-white/5 opacity-40'}`}>
                                                     <p className="text-zinc-500 mb-1 uppercase text-[8px] font-black tracking-widest">Banned</p>
                                                     <p className="text-white font-bold">{settings.excludedIds.length}</p>
                                                 </div>
                                             </div>
                                         </div>
-                                        <button onClick={() => { pickRandomClip(); setShowMenu(false); }} className="w-full bg-white text-black py-5 mt-6 rounded-2xl font-black text-xs uppercase tracking-[0.3em] hover:bg-purple-500 hover:text-white transition-all shadow-2xl active:scale-95">
-                                            Apply & Sync
+                                        <button onClick={() => { pickRandomClip(); setShowMenu(false); }} className="w-full bg-white text-black py-5 mt-8 rounded-3xl font-black text-xs uppercase tracking-[0.3em] hover:bg-purple-600 hover:text-white transition-all shadow-2xl active:scale-95">
+                                            Apply Changes
                                         </button>
                                     </div>
                                 </div>
@@ -374,6 +357,7 @@
                         </div>
                     )}
 
+                    {/* Clip Iframe - Key reset forces autoplay on swap */}
                     {clip ? (
                         <iframe 
                             key={clip.id} 
@@ -386,15 +370,16 @@
                         <div className="w-full h-full flex items-center justify-center bg-black"><Spinner className="w-12 h-12" /></div>
                     )}
 
+                    {/* Metadata Overlay */}
                     {clip && !showMenu && (
-                        <div className="absolute bottom-0 left-0 w-full h-1/3 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none flex items-end p-6 md:p-12">
-                            <div className="max-w-4xl animate-in fade-in slide-in-from-bottom-4 duration-1000">
-                                <div className="flex items-center gap-3 mb-3">
-                                    <span className="bg-purple-600 text-[9px] font-black px-2.5 py-1 rounded-sm uppercase tracking-widest shadow-lg shadow-purple-500/20">Featured Highlight</span>
-                                    <span className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em]">{clip.creator_name}</span>
+                        <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-black via-black/40 to-transparent pointer-events-none flex items-end p-8 md:p-16">
+                            <div className="max-w-5xl animate-in fade-in slide-in-from-bottom-6 duration-1000">
+                                <div className="flex items-center gap-4 mb-4">
+                                    <span className="bg-purple-600 text-[10px] font-black px-3 py-1.5 rounded-md uppercase tracking-widest shadow-xl shadow-purple-500/30 italic">Featured Highlight</span>
+                                    <span className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.3em]">{clip.creator_name}</span>
                                 </div>
-                                <h2 className="text-3xl md:text-6xl font-black text-white tracking-tighter leading-[0.9] drop-shadow-2xl">{clip.title}</h2>
-                                <div className="mt-4 flex items-center gap-6 text-[10px] md:text-xs font-black uppercase tracking-widest text-zinc-500">
+                                <h2 className="text-4xl md:text-7xl font-black text-white tracking-tighter leading-[0.85] drop-shadow-[0_10px_10px_rgba(0,0,0,0.8)] uppercase italic">{clip.title}</h2>
+                                <div className="mt-6 flex items-center gap-8 text-[11px] md:text-sm font-black uppercase tracking-widest text-zinc-500">
                                     <span className="text-purple-500">{clip.view_count.toLocaleString()} Views</span>
                                     <span className="text-zinc-800">/</span>
                                     <span>{new Date(clip.created_at).toLocaleDateString()}</span>
@@ -403,10 +388,11 @@
                         </div>
                     )}
 
+                    {/* Game Box Art */}
                     {gameArt && !showMenu && (
-                        <div className="absolute bottom-8 right-8 md:bottom-12 md:right-12 w-24 md:w-36 game-art-float pointer-events-none">
-                            <div className="p-1.5 bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl ring-1 ring-white/20 overflow-hidden">
-                                <img src={gameArt} alt="Game Box Art" className="w-full h-auto rounded-xl shadow-lg opacity-90" />
+                        <div className="absolute bottom-10 right-10 md:bottom-20 md:right-20 w-28 md:w-44 game-art-float pointer-events-none">
+                            <div className="p-2 bg-white/10 backdrop-blur-3xl rounded-[2rem] shadow-2xl ring-1 ring-white/20 overflow-hidden">
+                                <img src={gameArt} alt="Game Box Art" className="w-full h-auto rounded-[1.5rem] shadow-lg opacity-90" />
                             </div>
                         </div>
                     )}
