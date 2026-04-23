@@ -66,6 +66,7 @@
             const [gameArt, setGameArt] = useState(null);
             const [loading, setLoading] = useState(true);
             const [showMenu, setShowMenu] = useState(false);
+            const [hasInteracted, setHasInteracted] = useState(false);
             
             const [searchQuery, setSearchQuery] = useState('');
             const [searchResults, setSearchResults] = useState([]);
@@ -108,11 +109,9 @@
                 }
                 setSearching(true);
                 try {
-                    // Deep search: Fetch multiple pages to find the clip
                     let allFetchedClips = [];
                     let cursor = '';
                     
-                    // Fetch up to 5 pages (500 clips) to ensure thorough search
                     for (let i = 0; i < 5; i++) {
                         const url = `https://api.twitch.tv/helix/clips?broadcaster_id=${CONFIG.broadcasterId}&first=100${cursor ? `&after=${cursor}` : ''}`;
                         const response = await fetch(url, {
@@ -167,12 +166,9 @@
                     const data = await response.json();
                     let clipsPool = data.data || [];
 
-                    // Filter Logic
                     if (settings.includedIds.length > 0) {
                         clipsPool = clipsPool.filter(c => settings.includedIds.includes(c.id));
-                        // If included clips aren't in the current range, we must fetch them specifically
                         if (clipsPool.length === 0) {
-                             // Fetch specific IDs if range didn't include them
                              const specificRes = await fetch(`https://api.twitch.tv/helix/clips?id=${settings.includedIds.join('&id=')}`, {
                                 headers: {
                                     'Client-ID': CONFIG.clientId,
@@ -189,7 +185,6 @@
                     }
 
                     if (clipsPool.length > 0) {
-                        // Logic for randomness
                         const nextClip = settings.shuffle 
                             ? clipsPool[Math.floor(Math.random() * clipsPool.length)]
                             : clipsPool[0];
@@ -205,22 +200,22 @@
             }, [settings]);
 
             useEffect(() => { 
-                pickRandomClip(); 
-            }, []);
+                if (hasInteracted) pickRandomClip(); 
+            }, [hasInteracted]);
 
             useEffect(() => {
+                if (!hasInteracted) return;
                 if (timerRef.current) clearInterval(timerRef.current);
                 timerRef.current = setInterval(() => { 
                     pickRandomClip(); 
                 }, settings.duration * 1000);
                 return () => clearInterval(timerRef.current);
-            }, [settings.duration, pickRandomClip]);
+            }, [settings.duration, pickRandomClip, hasInteracted]);
 
             const getEmbedUrl = (c) => {
                 if (!c) return '';
                 const host = window.location.hostname;
-                // Docs specify parent domain must be exact. 
-                // We ensure autoplay=true and muted=false for the broadcast feel.
+                // Standardizing the embed URL with essential autoplay and muted parameters
                 return `${c.embed_url}&parent=${host}&parent=rydenbelmont-maker.github.io&autoplay=true&muted=false`;
             };
 
@@ -238,6 +233,29 @@
                     lucide.createIcons();
                 }
             });
+
+            // Interaction Overlay to "Unlock" Autoplay
+            if (!hasInteracted) {
+                return (
+                    <div className="w-full h-full flex items-center justify-center bg-black">
+                        <div className="text-center space-y-6 animate-in fade-in zoom-in duration-500">
+                            <div className="w-20 h-20 bg-purple-600 rounded-full flex items-center justify-center mx-auto shadow-2xl shadow-purple-500/20">
+                                <i data-lucide="play" className="text-white fill-white w-8 h-8 ml-1"></i>
+                            </div>
+                            <div className="space-y-2">
+                                <h1 className="text-3xl font-black tracking-tighter uppercase">Ryden Belmont</h1>
+                                <p className="text-[10px] text-zinc-500 font-black tracking-[0.3em] uppercase">Archive Sync Ready</p>
+                            </div>
+                            <button 
+                                onClick={() => setHasInteracted(true)}
+                                className="bg-white text-black px-10 py-4 rounded-full font-black text-xs uppercase tracking-[0.2em] hover:bg-purple-500 hover:text-white transition-all shadow-xl"
+                            >
+                                Start Viewer
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
 
             return (
                 <div className="relative w-full h-full group overflow-hidden bg-black">
@@ -361,6 +379,7 @@
                             key={clip.id} 
                             src={getEmbedUrl(clip)} 
                             allowFullScreen 
+                            allow="autoplay; fullscreen"
                             className="absolute inset-0 w-full h-full"
                         ></iframe>
                     ) : (
