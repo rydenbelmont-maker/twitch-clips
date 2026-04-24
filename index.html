@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ryden Belmont - Pro Clip Viewer</title>
-    <!-- Technical Dependencies -->
+    <!-- Technical Architecture Dependencies -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -13,12 +13,21 @@
     <style>
         body, html { 
             margin: 0; padding: 0; background-color: #000; color: #fff; 
-            overflow: hidden; width: 100%; height: 100%; font-family: 'Inter', sans-serif;
+            overflow: hidden; width: 100vw; height: 100vh; font-family: 'Inter', sans-serif;
         }
-        #root { width: 100%; height: 100%; }
-        .video-wrapper {
-            position: relative; width: 100%; height: 100%; background: #000;
+        #root { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+        
+        /* Aspect Ratio Box Strategy - Enforces a 16:9 viewport (Guide Ref: 22) */
+        .video-box {
+            position: relative;
+            width: 100vw;
+            height: 56.25vw; /* 16:9 ratio */
+            max-height: 100vh;
+            max-width: 177.78vh; /* 16:9 ratio */
+            background: #000;
+            box-shadow: 0 0 100px rgba(0,0,0,0.5);
         }
+
         iframe { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;
             z-index: 1;
@@ -30,16 +39,16 @@
         }
         .game-art-float { animation: float 5s ease-in-out infinite; }
         
-        /* Hidden settings trigger - top left */
+        /* Settings access - hidden top left */
         .settings-area {
-            position: absolute; top: 0; left: 0; width: 150px; height: 150px;
+            position: absolute; top: 0; left: 0; width: 120px; height: 120px;
             z-index: 100; opacity: 0; transition: opacity 0.3s ease;
         }
         .settings-area:hover { opacity: 1; }
         
-        .overlay-vignette {
+        .overlay-mask {
             position: absolute; inset: 0;
-            background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, transparent 25%);
+            background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 20%);
             pointer-events: none; z-index: 10;
         }
 
@@ -60,22 +69,18 @@
             accessToken: 'k1qc1ekg9n61r1h3qa779sposci95t'
         };
 
-        const Spinner = () => (
-            <div className="w-12 h-12 border-4 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
-        );
-
         const App = () => {
             const [clip, setClip] = useState(null);
             const [gameArt, setGameArt] = useState(null);
             const [loading, setLoading] = useState(true);
             const [showMenu, setShowMenu] = useState(false);
-            const [clipArchive, setClipArchive] = useState([]); 
+            const [isMuted, setIsMuted] = useState(true);
+            const [clipArchive, setClipArchive] = useState([]);
             const [indexing, setIndexing] = useState(false);
             const [searchQuery, setSearchQuery] = useState('');
 
-            // Settings from LocalStorage
             const [settings, setSettings] = useState(() => {
-                const saved = localStorage.getItem('ryden_v5_settings');
+                const saved = localStorage.getItem('ryden_v6_settings');
                 return saved ? JSON.parse(saved) : {
                     duration: 60,
                     range: 100,
@@ -89,7 +94,7 @@
             const timerRef = useRef(null);
 
             useEffect(() => {
-                localStorage.setItem('ryden_v5_settings', JSON.stringify(settings));
+                localStorage.setItem('ryden_v6_settings', JSON.stringify(settings));
             }, [settings]);
 
             const fetchGameArt = async (gameId) => {
@@ -102,10 +107,9 @@
                     if (data.data?.length > 0) {
                         setGameArt(data.data[0].box_art_url.replace('{width}', '300').replace('{height}', '400'));
                     }
-                } catch (e) { console.error("Art load failed", e); }
+                } catch (e) { console.error(e); }
             };
 
-            // Deep Index: Fetch up to 1000 clips for the Search Database
             const buildDatabase = async () => {
                 setIndexing(true);
                 try {
@@ -115,17 +119,17 @@
                         const res = await fetch(`https://api.twitch.tv/helix/clips?broadcaster_id=${CONFIG.broadcasterId}&first=100${cursor ? `&after=${cursor}` : ''}`, {
                             headers: { 'Client-ID': CONFIG.clientId, 'Authorization': `Bearer ${CONFIG.accessToken}` }
                         });
-                        const data = await response.ok ? await res.json() : { data: [] };
+                        const data = await res.json();
                         if (data.data) collected = [...collected, ...data.data];
                         cursor = data.pagination?.cursor;
                         if (!cursor) break;
                     }
                     setClipArchive(collected);
-                } catch (e) { console.error("Database build failed", e); }
+                } catch (e) { console.error(e); }
                 finally { setIndexing(false); }
             };
 
-            const pickNextClip = useCallback(async () => {
+            const rotateClip = useCallback(async () => {
                 setLoading(true);
                 try {
                     const params = new URLSearchParams({ broadcaster_id: CONFIG.broadcasterId, first: settings.range });
@@ -141,7 +145,6 @@
                     const data = await res.json();
                     let pool = data.data || [];
 
-                    // Apply Pin/Ban logic
                     if (settings.includedIds.length > 0) {
                         pool = pool.filter(c => settings.includedIds.includes(c.id));
                         if (pool.length === 0) {
@@ -152,38 +155,30 @@
                             pool = specData.data || [];
                         }
                     }
-                    
-                    if (settings.excludedIds.length > 0) {
-                        pool = pool.filter(c => !settings.excludedIds.includes(c.id));
-                    }
+                    if (settings.excludedIds.length > 0) pool = pool.filter(c => !settings.excludedIds.includes(c.id));
 
                     if (pool.length > 0) {
                         const selection = settings.shuffle ? pool[Math.floor(Math.random() * pool.length)] : pool[0];
                         setClip(selection);
                         fetchGameArt(selection.game_id);
                     }
-                } catch (e) { console.error("Rotation failed", e); }
+                } catch (e) { console.error(e); }
                 finally { setLoading(false); }
             }, [settings]);
 
-            // Timer management
             useEffect(() => {
                 if (timerRef.current) clearInterval(timerRef.current);
-                timerRef.current = setInterval(pickNextClip, settings.duration * 1000);
+                timerRef.current = setInterval(rotateClip, settings.duration * 1000);
                 return () => clearInterval(timerRef.current);
-            }, [settings.duration, pickNextClip]);
+            }, [settings.duration, rotateClip]);
 
-            useEffect(() => { pickNextClip(); }, []);
+            useEffect(() => { rotateClip(); }, []);
 
             const getEmbedUrl = (c) => {
                 if (!c) return '';
-                
-                // FORUM FIX: Extract the exact domain. Twitch often fails if there are multiple parents 
-                // or if the parent isn't the first parameter after the ID.
                 const host = window.location.hostname;
-                
-                // Constructing based on the discussion: ID -> Autoplay -> Muted -> Parent
-                return `https://clips.twitch.tv/embed?clip=${c.id}&autoplay=true&muted=false&parent=${host}`;
+                // FORUM FIX: Params order: Autoplay -> Muted -> Parent (Ref: Twitch Dev Forum 15795)
+                return `https://clips.twitch.tv/embed?clip=${c.id}&autoplay=true&muted=${isMuted}&parent=${host}&parent=rydenbelmont-maker.github.io&parent=localhost`;
             };
 
             const toggleFilter = (id, key) => {
@@ -198,35 +193,45 @@
                 return clipArchive.filter(c => c.title.toLowerCase().includes(searchQuery.toLowerCase()));
             }, [searchQuery, clipArchive]);
 
+            const handlePageClick = () => {
+                if (isMuted) setIsMuted(false);
+            };
+
             useEffect(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
 
             return (
-                <div className="relative w-full h-full bg-black group overflow-hidden">
-                    {/* Settings Trigger */}
+                <div className="relative w-full h-full bg-black group overflow-hidden flex items-center justify-center" onClick={handlePageClick}>
+                    {/* Settings Trigger Area */}
                     <div className="settings-area p-8">
                         <button 
-                            onClick={() => { setShowMenu(true); if(clipArchive.length === 0) buildDatabase(); }}
-                            className="bg-black/60 hover:bg-black p-4 rounded-2xl border border-white/10 backdrop-blur-md text-white/40 hover:text-purple-500 shadow-2xl transition-all"
+                            onClick={(e) => { e.stopPropagation(); setShowMenu(true); if(clipArchive.length === 0) buildDatabase(); }}
+                            className="bg-black/60 hover:bg-black p-4 rounded-2xl border border-white/10 backdrop-blur-md text-white/40 hover:text-purple-500 transition-all"
                         >
                             <i data-lucide="settings" className="w-6 h-6"></i>
                         </button>
                     </div>
 
-                    {/* Pro Management Interface */}
+                    {/* Mute Indicator - Subtle Overlay */}
+                    {isMuted && clip && (
+                        <div className="absolute top-8 right-8 z-[100] animate-pulse">
+                            <div className="bg-purple-600/80 text-white px-4 py-2 rounded-full flex items-center gap-2 text-[10px] font-black uppercase tracking-widest backdrop-blur-md">
+                                <i data-lucide="volume-x" className="w-4 h-4"></i>
+                                Click to Unmute
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Pro Settings Menu */}
                     {showMenu && (
-                        <div className="absolute inset-0 z-[200] bg-black/95 backdrop-blur-2xl flex items-center justify-center p-6" onClick={() => setShowMenu(false)}>
-                            <div className="w-full max-w-5xl max-h-[85vh] bg-[#0b0b0d] border border-white/10 rounded-[3rem] p-12 space-y-10 shadow-2xl relative flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="absolute inset-0 z-[200] bg-black/95 backdrop-blur-3xl flex items-center justify-center p-6" onClick={() => setShowMenu(false)}>
+                            <div className="w-full max-w-5xl max-h-[85vh] bg-[#0c0c0e] border border-white/10 rounded-[3rem] p-12 space-y-10 shadow-2xl relative flex flex-col" onClick={e => e.stopPropagation()}>
                                 <button onClick={() => setShowMenu(false)} className="absolute top-12 right-12 text-zinc-600 hover:text-white transition-colors">
                                     <i data-lucide="x" className="w-7 h-7"></i>
                                 </button>
 
-                                <div className="space-y-2">
-                                    <h3 className="text-4xl font-black tracking-tighter text-white uppercase italic">Clip Controller</h3>
-                                    <div className="flex items-center gap-4 text-[10px] text-zinc-600 font-black tracking-[0.4em] uppercase">
-                                        <span>v5.0.0 Stable</span>
-                                        <div className="w-1 h-1 rounded-full bg-zinc-800"></div>
-                                        <span>Sync Mode: Broadcast</span>
-                                    </div>
+                                <div className="space-y-1">
+                                    <h3 className="text-4xl font-black tracking-tighter text-white uppercase italic italic">Control Panel</h3>
+                                    <p className="text-[10px] text-zinc-600 font-black tracking-[0.4em] uppercase">Archive Management v6.0</p>
                                 </div>
 
                                 <div className="grid md:grid-cols-2 gap-12 overflow-hidden flex-1">
@@ -237,7 +242,7 @@
                                                 <input type="number" value={settings.duration} onChange={(e) => setSettings({...settings, duration: Number(e.target.value)})} className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm font-bold focus:ring-1 focus:ring-purple-600 outline-none transition-all"/>
                                             </div>
                                             <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Archive Filter</label>
+                                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Date Window</label>
                                                 <select value={settings.timeRange} onChange={(e) => setSettings({...settings, timeRange: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-xs font-bold focus:ring-1 focus:ring-purple-600 outline-none cursor-pointer appearance-none">
                                                     <option value="all">Featured / All Time</option>
                                                     <option value="7d">Last 7 Days</option>
@@ -249,13 +254,13 @@
 
                                         <div className="space-y-4">
                                             <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex justify-between items-center">
-                                                Search All Clips (Deep Index)
-                                                {indexing && <span className="animate-pulse text-purple-600 font-black uppercase">Indexing...</span>}
+                                                Search Archive Database
+                                                {indexing && <span className="animate-pulse text-purple-600">Indexing...</span>}
                                             </label>
                                             <div className="relative">
                                                 <input 
                                                     type="text" 
-                                                    placeholder="Search to Pin or Ban specific clips..." 
+                                                    placeholder="Search title to Pin or Ban..." 
                                                     value={searchQuery}
                                                     onChange={(e) => setSearchQuery(e.target.value)}
                                                     className="w-full bg-black border border-white/10 rounded-2xl pl-14 pr-6 py-5 text-sm font-medium focus:ring-1 focus:ring-purple-600 outline-none"
@@ -265,9 +270,9 @@
                                             
                                             <div className="space-y-2 h-72 overflow-y-auto custom-scrollbar pr-2">
                                                 {indexing ? (
-                                                    <div className="text-center py-20"><Spinner /></div>
+                                                    <div className="text-center py-20 opacity-50 uppercase text-[10px] font-black tracking-widest">Scanning History...</div>
                                                 ) : searchQuery.length < 2 ? (
-                                                    <div className="text-center py-20 text-[10px] text-zinc-700 uppercase font-black tracking-widest italic">Type to find clips in history...</div>
+                                                    <div className="text-center py-20 text-[10px] text-zinc-700 uppercase font-black tracking-widest italic">Type clip title to start...</div>
                                                 ) : filteredArchive.length > 0 ? (
                                                     filteredArchive.map(c => (
                                                         <div key={c.id} className="bg-white/5 p-3 rounded-2xl border border-white/5 flex items-center gap-5 hover:bg-white/10 transition-all">
@@ -283,7 +288,7 @@
                                                         </div>
                                                     ))
                                                 ) : (
-                                                    <div className="text-center py-20 text-[10px] text-zinc-700 font-black tracking-widest">No results in index</div>
+                                                    <div className="text-center py-20 text-[10px] text-zinc-700 font-black tracking-widest">No matching assets</div>
                                                 )}
                                             </div>
                                         </div>
@@ -291,10 +296,10 @@
 
                                     <div className="bg-white/5 rounded-[3rem] border border-white/5 p-10 flex flex-col justify-between">
                                         <div className="space-y-8">
-                                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest italic">Active Ruleset</label>
+                                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest italic tracking-widest">Active Ruleset</label>
                                             <div className="space-y-4">
                                                 <div className="p-6 bg-purple-600/5 border border-purple-500/20 rounded-[2rem]">
-                                                    <p className="text-[9px] text-purple-400 mb-2 uppercase font-black tracking-widest">Parent Domain</p>
+                                                    <p className="text-[9px] text-purple-400 mb-2 uppercase font-black tracking-widest">Parent ID</p>
                                                     <p className="text-white font-mono text-base font-bold uppercase">{window.location.hostname || "localhost"}</p>
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-4">
@@ -309,18 +314,18 @@
                                                 </div>
                                             </div>
                                         </div>
-                                        <button onClick={() => { pickNextClip(); setShowMenu(false); }} className="w-full bg-white text-black py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] hover:bg-purple-600 hover:text-white transition-all shadow-2xl active:scale-95">Deploy Changes</button>
+                                        <button onClick={() => { rotateClip(); setShowMenu(false); }} className="w-full bg-white text-black py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] hover:bg-purple-600 hover:text-white transition-all shadow-2xl active:scale-95">Commit & Deploy</button>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Media Layer */}
-                    <div className="video-wrapper">
+                    {/* Aspect Ratio Box (Enforced 16:9) */}
+                    <div className="video-box">
                         {clip ? (
                             <iframe 
-                                key={clip.id} 
+                                key={`${clip.id}-${isMuted}`} 
                                 src={getEmbedUrl(clip)} 
                                 allowFullScreen 
                                 allow="autoplay; fullscreen"
@@ -328,32 +333,32 @@
                             ></iframe>
                         ) : (
                             <div className="w-full h-full flex flex-col items-center justify-center bg-black gap-6">
-                                <Spinner />
-                                <span className="text-[10px] font-black uppercase tracking-[0.6em] text-zinc-700 italic animate-pulse">Syncing Archive...</span>
+                                <div className="w-12 h-12 border-4 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
+                                <span className="text-[10px] font-black uppercase tracking-[0.6em] text-zinc-700 italic animate-pulse">Syncing Highlight...</span>
                             </div>
                         )}
                     </div>
 
-                    {/* Overlay Metadata */}
+                    {/* Minimal Data Layer */}
                     {clip && !showMenu && (
-                        <div className="absolute inset-0 overlay-vignette flex items-end p-10 md:p-16">
+                        <div className="absolute inset-0 overlay-mask flex items-end p-10 md:p-16">
                             <div className="max-w-5xl animate-in fade-in slide-in-from-bottom-8 duration-1000">
-                                <div className="flex flex-col gap-5">
+                                <div className="flex flex-col gap-4">
                                     <div className="flex items-center gap-4">
                                         <div className="bg-purple-600 px-4 py-2 rounded-lg shadow-xl shadow-purple-500/30">
-                                            <span className="text-[9px] font-black uppercase tracking-[0.3em] italic text-white leading-none">Featured Asset</span>
+                                            <span className="text-[9px] font-black uppercase tracking-[0.3em] italic text-white leading-none">Featured Highlight</span>
                                         </div>
                                         <div className="h-[1px] w-12 bg-white/20"></div>
                                         <span className="text-[11px] text-zinc-500 font-black uppercase tracking-[0.4em]">{clip.creator_name}</span>
                                     </div>
-                                    <div className="flex items-center gap-8 text-[11px] md:text-sm font-black uppercase tracking-[0.3em] text-zinc-600 italic">
+                                    <div className="flex items-center gap-8 text-[11px] md:text-sm font-black uppercase tracking-[0.3em] text-zinc-600 italic font-black">
                                         <div className="flex items-center gap-2.5">
                                             <i data-lucide="eye" className="w-4 h-4 text-purple-600"></i>
                                             <span className="text-zinc-200">{clip.view_count.toLocaleString()} Views</span>
                                         </div>
                                         <div className="flex items-center gap-2.5">
                                             <i data-lucide="calendar" className="w-4 h-4 text-purple-600"></i>
-                                            <span className="text-zinc-200 uppercase">{new Date(clip.created_at).toLocaleDateString()}</span>
+                                            <span className="text-zinc-200">{new Date(clip.created_at).toLocaleDateString()}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -361,11 +366,11 @@
                         </div>
                     )}
 
-                    {/* Game Box Art Layer */}
+                    {/* Floating Game Box Art */}
                     {gameArt && !showMenu && (
-                        <div className="absolute bottom-12 right-12 md:bottom-20 md:right-20 w-32 md:w-48 game-art-float pointer-events-none z-[20]">
-                            <div className="p-2 bg-white/10 backdrop-blur-3xl rounded-[2.5rem] shadow-[0_35px_60px_-15px_rgba(0,0,0,0.8)] ring-1 ring-white/20 overflow-hidden">
-                                <img src={gameArt} alt="Game Box Art" className="w-full h-auto rounded-[2rem] shadow-lg opacity-90 grayscale-[0.2] contrast-[1.1]" />
+                        <div className="absolute bottom-12 right-12 md:bottom-20 md:right-20 w-32 md:w-44 game-art-float pointer-events-none z-[20]">
+                            <div className="p-2 bg-white/10 backdrop-blur-3xl rounded-[2rem] shadow-[0_35px_60px_-15px_rgba(0,0,0,0.8)] ring-1 ring-white/20 overflow-hidden">
+                                <img src={gameArt} alt="Game Box Art" className="w-full h-auto rounded-[1.5rem] shadow-lg opacity-90 grayscale-[0.1] contrast-[1.1]" />
                             </div>
                         </div>
                     )}
