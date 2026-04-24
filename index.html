@@ -3,374 +3,398 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ryden Belmont - Clip Widget v10</title>
-    
-    <!-- Technical Dependencies -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <title>Ryden Belmont - Twitch Clip Widget</title>
+    <!-- Tailwind CSS for modern, rapid styling -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-
+    <!-- Phosphor Icons for UI elements -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
     <style>
-        body, html { 
-            margin: 0; padding: 0; background-color: transparent; color: #fff; 
-            overflow: hidden; width: 100%; height: 100%; font-family: 'Inter', sans-serif;
-        }
-        #root { width: 100%; height: 100%; }
-        
-        .widget-container {
-            position: relative;
-            width: 100%;
-            height: 100%;
-            background: #000;
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        /* OBS requires a transparent background to overlay on your stream */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: transparent;
+            overflow: hidden; /* Prevent scrollbars in OBS */
+            font-family: 'Inter', sans-serif;
         }
 
-        .video-aspect-frame {
-            position: relative;
+        /* Iframe styling for 16:9 full coverage */
+        #clip-frame {
             width: 100%;
             height: 100%;
-            aspect-ratio: 16 / 9;
-        }
-
-        iframe { 
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;
+            border: none;
+            position: absolute;
+            top: 0;
+            left: 0;
             z-index: 1;
         }
-        
-        @keyframes float {
-            0%, 100% { transform: translateY(0px) rotate(0deg); }
-            50% { transform: translateY(-8px) rotate(1deg); }
+
+        /* Settings button - hidden by default, appears on hover or touch */
+        #settings-trigger {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 50;
+            opacity: 0;
+            transition: opacity 0.3s ease;
         }
-        .game-art-float { animation: float 5s ease-in-out infinite; }
         
-        .settings-area {
-            position: absolute; top: 0; left: 0; width: 80px; height: 80px;
-            z-index: 100; opacity: 0; transition: opacity 0.3s ease;
-        }
-        .settings-area:hover { opacity: 1; }
-        
-        .overlay-mask {
-            position: absolute; 
-            bottom: 0; left: 0; right: 0;
-            height: 40%;
-            background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, transparent 100%);
-            pointer-events: none; z-index: 10;
+        body:hover #settings-trigger {
+            opacity: 1;
         }
 
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
-        ::-webkit-scrollbar { display: none; }
+        /* Settings Modal Styling */
+        #settings-modal {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(15, 23, 42, 0.95);
+            z-index: 100;
+            backdrop-filter: blur(8px);
+            color: white;
+            overflow-y: auto;
+        }
+
+        #settings-modal.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Custom Scrollbar for the grid */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
     </style>
 </head>
 <body>
-    <div id="root"></div>
 
-    <script type="text/babel">
-        const { useState, useEffect, useCallback, useRef, useMemo } = React;
+    <!-- Main Clip Player -->
+    <iframe id="clip-frame" allowfullscreen="true" scrolling="no" allow="autoplay; encrypted-media"></iframe>
 
+    <!-- Settings Trigger Button -->
+    <button id="settings-trigger" class="bg-indigo-600 hover:bg-indigo-500 text-white p-3 rounded-full shadow-lg backdrop-blur-md transition-all transform hover:scale-110" onclick="openSettings()">
+        <i class="ph ph-gear text-2xl"></i>
+    </button>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="p-8">
+        <div class="max-w-7xl mx-auto w-full flex-grow flex flex-col h-full">
+            
+            <!-- Header -->
+            <div class="flex justify-between items-center mb-6 border-b border-slate-700 pb-4">
+                <div>
+                    <h1 class="text-3xl font-bold text-white flex items-center gap-3">
+                        <i class="ph-fill ph-twitch-logo text-purple-500"></i> Clip Management
+                    </h1>
+                    <p id="indexing-status" class="text-slate-400 mt-1 text-sm">Initializing...</p>
+                </div>
+                <button onclick="closeSettings()" class="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2">
+                    <i class="ph ph-x"></i> Close & Apply
+                </button>
+            </div>
+
+            <!-- Dashboard Stats -->
+            <div class="grid grid-cols-3 gap-4 mb-6">
+                <div class="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                    <div class="text-slate-400 text-sm">Total Indexed Clips</div>
+                    <div id="stat-total" class="text-2xl font-bold text-white">0</div>
+                </div>
+                <div class="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                    <div class="text-slate-400 text-sm">Pinned Clips (Plays Only These)</div>
+                    <div id="stat-pinned" class="text-2xl font-bold text-yellow-400">0</div>
+                </div>
+                <div class="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                    <div class="text-slate-400 text-sm">Banned Clips (Skipped)</div>
+                    <div id="stat-banned" class="text-2xl font-bold text-red-400">0</div>
+                </div>
+            </div>
+
+            <!-- Clips Grid -->
+            <div id="clips-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 overflow-y-auto pr-2 pb-10">
+                <!-- Clips will be injected here via JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * TECHNICAL CONFIGURATION
+         * Based on Ryden Belmont Clip Widget Technical Reference
+         */
         const CONFIG = {
             broadcasterId: '635887962',
             clientId: 'mdizqkgtl6tar5h4si6hsikyxcvo1c',
-            accessToken: 'k1qc1ekg9n61r1h3qa779sposci95t'
+            accessToken: 'k1qc1ekg9n61r1h3qa779sposci95t',
+            storageKey: 'ryden_widget_v10_settings',
+            baseParents: ['localhost', '127.0.0.1', 'rydenbelmont-maker.github.io', 'obs.twitch.tv']
         };
 
-        const App = () => {
-            const [clip, setClip] = useState(null);
-            const [gameArt, setGameArt] = useState(null);
-            const [loading, setLoading] = useState(true);
-            const [showMenu, setShowMenu] = useState(false);
-            const [isMuted, setIsMuted] = useState(true);
-            const [clipArchive, setClipArchive] = useState([]);
-            const [indexing, setIndexing] = useState(false);
-            const [searchQuery, setSearchQuery] = useState('');
+        // Application State
+        let state = {
+            clips: [],          // All fetched clips
+            playbackQueue: [],  // Valid clips queued for rotation
+            currentIndex: -1,   // Current clip index in queue
+            rotationTimer: null, // Timeout reference for looping
+            hasDeepIndexed: false
+        };
 
-            const [settings, setSettings] = useState(() => {
-                const saved = localStorage.getItem('ryden_widget_v10_settings');
-                return saved ? JSON.parse(saved) : {
-                    duration: 60,
-                    range: 100,
-                    timeRange: 'all',
-                    excludedIds: [],
-                    includedIds: [],
-                    shuffle: true
+        // User Settings (Loaded from LocalStorage)
+        let settings = {
+            pinned: [], // Array of clip IDs
+            banned: []  // Array of clip IDs
+        };
+
+        // Initialize Widget
+        async function init() {
+            loadSettings();
+            
+            // Initial fetch to start playback quickly (only top 100)
+            const result = await fetchClips(100);
+            if(result.data.length > 0) {
+                state.clips = result.data;
+                buildPlaybackQueue();
+                playNextClip();
+            } else {
+                console.error("No clips found or API Error. Please check access token.");
+                document.getElementById('indexing-status').innerText = "API Error: Verify token in config.";
+            }
+        }
+
+        // --- Twitch API Logic ---
+
+        async function fetchClips(limit = 100, cursor = null) {
+            let url = `https://api.twitch.tv/helix/clips?broadcaster_id=${CONFIG.broadcasterId}&first=${Math.min(limit, 100)}`;
+            if (cursor) url += `&after=${cursor}`;
+
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        'Client-ID': CONFIG.clientId,
+                        'Authorization': `Bearer ${CONFIG.accessToken}`
+                    }
+                });
+
+                if (!response.ok) {
+                    console.error("Twitch API Error:", response.status, await response.text());
+                    return { data: [], cursor: null };
+                }
+
+                const data = await response.json();
+                return {
+                    data: data.data,
+                    cursor: data.pagination ? data.pagination.cursor : null
                 };
+            } catch (err) {
+                console.error("Network error fetching clips:", err);
+                return { data: [], cursor: null };
+            }
+        }
+
+        // "Deep Indexing" -> Fetches up to 1000 clips for the management menu
+        async function runDeepIndexing() {
+            if (state.hasDeepIndexed) return;
+            
+            let fetchedCount = 0;
+            let currentCursor = null;
+            let allFetched = [];
+            const statusText = document.getElementById('indexing-status');
+
+            statusText.innerText = 'Deep Indexing started... This may take a moment.';
+
+            while (fetchedCount < 1000) {
+                statusText.innerText = `Indexing clips... (${fetchedCount}/1000)`;
+                const result = await fetchClips(100, currentCursor);
+                
+                if (result.data.length === 0) break; // No more clips
+                
+                allFetched.push(...result.data);
+                fetchedCount += result.data.length;
+                currentCursor = result.cursor;
+                
+                if (!currentCursor) break; // End of pagination
+            }
+
+            state.clips = allFetched;
+            state.hasDeepIndexed = true;
+            statusText.innerHTML = `<span class="text-emerald-400"><i class="ph-fill ph-check-circle"></i> Successfully indexed ${state.clips.length} clips.</span>`;
+            
+            updateStats();
+            renderClipsGrid();
+        }
+
+        // --- Playback Logic ---
+
+        function buildPlaybackQueue() {
+            // Priority 1: If any clips are pinned, ONLY play pinned clips.
+            // Priority 2: Otherwise, play all clips EXCEPT banned clips.
+            
+            // Clean up missing/deleted pins from settings
+            const validClipIds = state.clips.map(c => c.id);
+            settings.pinned = settings.pinned.filter(id => validClipIds.includes(id));
+
+            if (settings.pinned.length > 0) {
+                state.playbackQueue = state.clips.filter(c => settings.pinned.includes(c.id));
+            } else {
+                state.playbackQueue = state.clips.filter(c => !settings.banned.includes(c.id));
+            }
+
+            // Shuffle queue to keep things fresh
+            state.playbackQueue = state.playbackQueue.sort(() => Math.random() - 0.5);
+            state.currentIndex = -1; // Reset index
+        }
+
+        function playNextClip() {
+            if (state.playbackQueue.length === 0) {
+                console.warn("Playback queue empty. Checking for clips...");
+                return; // Nothing to play
+            }
+
+            state.currentIndex = (state.currentIndex + 1) % state.playbackQueue.length;
+            const clip = state.playbackQueue[state.currentIndex];
+
+            // Safely generate parent parameters based on guidelines
+            const host = window.location.hostname;
+            const parents = [...CONFIG.baseParents];
+            if (host && !parents.includes(host)) {
+                parents.push(host);
+            }
+            const parentString = parents.map(p => `&parent=${p}`).join('');
+
+            // Construct Autoplay URL Pattern
+            const iframeUrl = `https://clips.twitch.tv/embed?autoplay=true&clip=${clip.id}&muted=false${parentString}`;
+            
+            document.getElementById('clip-frame').src = iframeUrl;
+
+            // Determine when to switch to the next clip
+            // Add a 1.5 second buffer for loading over the actual clip duration
+            const durationMs = (clip.duration * 1000) + 1500;
+            
+            clearTimeout(state.rotationTimer);
+            state.rotationTimer = setTimeout(playNextClip, durationMs);
+        }
+
+        // --- Settings & UI Management ---
+
+        function loadSettings() {
+            const saved = localStorage.getItem(CONFIG.storageKey);
+            if (saved) {
+                try {
+                    settings = { ...settings, ...JSON.parse(saved) };
+                } catch(e) { console.error("Error parsing settings", e); }
+            }
+        }
+
+        function saveSettings() {
+            localStorage.setItem(CONFIG.storageKey, JSON.stringify(settings));
+        }
+
+        function openSettings() {
+            document.getElementById('settings-modal').classList.add('active');
+            runDeepIndexing(); // Triggers the deep fetch (only runs once)
+            updateStats();
+        }
+
+        function closeSettings() {
+            document.getElementById('settings-modal').classList.remove('active');
+            saveSettings();
+            buildPlaybackQueue();
+            
+            // If the currently playing clip was just banned, or queue changed drastically, skip forward immediately
+            const currentClip = state.playbackQueue[state.currentIndex];
+            if(!currentClip || settings.banned.includes(currentClip.id)) {
+                playNextClip(); 
+            }
+        }
+
+        function togglePin(clipId) {
+            if (settings.pinned.includes(clipId)) {
+                settings.pinned = settings.pinned.filter(id => id !== clipId);
+            } else {
+                settings.pinned.push(clipId);
+                // Cannot be pinned and banned at the same time
+                settings.banned = settings.banned.filter(id => id !== clipId); 
+            }
+            saveSettings();
+            renderClipsGrid();
+            updateStats();
+        }
+
+        function toggleBan(clipId) {
+            if (settings.banned.includes(clipId)) {
+                settings.banned = settings.banned.filter(id => id !== clipId);
+            } else {
+                settings.banned.push(clipId);
+                // Cannot be pinned and banned at the same time
+                settings.pinned = settings.pinned.filter(id => id !== clipId);
+            }
+            saveSettings();
+            renderClipsGrid();
+            updateStats();
+        }
+
+        function updateStats() {
+            document.getElementById('stat-total').innerText = state.clips.length;
+            document.getElementById('stat-pinned').innerText = settings.pinned.length;
+            document.getElementById('stat-banned').innerText = settings.banned.length;
+        }
+
+        function renderClipsGrid() {
+            const grid = document.getElementById('clips-grid');
+            grid.innerHTML = ''; // Clear
+
+            state.clips.forEach(clip => {
+                const isPinned = settings.pinned.includes(clip.id);
+                const isBanned = settings.banned.includes(clip.id);
+
+                // Build Card
+                const card = document.createElement('div');
+                card.className = `relative group rounded-lg overflow-hidden border-2 transition-all duration-200 bg-slate-800 ${
+                    isPinned ? 'border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.3)]' : 
+                    isBanned ? 'border-red-500 opacity-50' : 'border-slate-700 hover:border-indigo-400'
+                }`;
+
+                card.innerHTML = `
+                    <div class="relative aspect-video">
+                        <img src="${clip.thumbnail_url}" class="w-full h-full object-cover" loading="lazy">
+                        
+                        ${isBanned ? `<div class="absolute inset-0 bg-red-900/60 flex items-center justify-center backdrop-blur-sm"><i class="ph-fill ph-prohibit text-4xl text-red-400"></i></div>` : ''}
+                        
+                        <div class="absolute top-2 right-2 flex gap-1">
+                            <button onclick="togglePin('${clip.id}')" title="Pin Clip" class="p-2 rounded bg-black/70 hover:bg-black text-white transition">
+                                <i class="${isPinned ? 'ph-fill text-yellow-400' : 'ph'} ph-push-pin text-lg"></i>
+                            </button>
+                            <button onclick="toggleBan('${clip.id}')" title="Ban Clip" class="p-2 rounded bg-black/70 hover:bg-black text-white transition">
+                                <i class="${isBanned ? 'ph-fill text-red-500' : 'ph'} ph-prohibit text-lg"></i>
+                            </button>
+                        </div>
+                        
+                        <div class="absolute bottom-2 left-2 bg-black/80 px-2 py-1 rounded text-xs text-white font-mono">
+                            ${Math.round(clip.duration)}s
+                        </div>
+                        <div class="absolute bottom-2 right-2 bg-black/80 px-2 py-1 rounded text-xs text-slate-300 flex items-center gap-1">
+                            <i class="ph-fill ph-eye"></i> ${clip.view_count.toLocaleString()}
+                        </div>
+                    </div>
+                    <div class="p-3">
+                        <h3 class="text-sm font-semibold text-white truncate" title="${clip.title}">${clip.title}</h3>
+                        <p class="text-xs text-slate-400 mt-1">${new Date(clip.created_at).toLocaleDateString()}</p>
+                    </div>
+                `;
+                
+                grid.appendChild(card);
             });
+        }
 
-            const timerRef = useRef(null);
+        // Start app
+        init();
 
-            useEffect(() => {
-                localStorage.setItem('ryden_widget_v10_settings', JSON.stringify(settings));
-            }, [settings]);
-
-            const fetchGameArt = async (gameId) => {
-                if (!gameId) return;
-                try {
-                    const res = await fetch(`https://api.twitch.tv/helix/games?id=${gameId}`, {
-                        headers: { 'Client-ID': CONFIG.clientId, 'Authorization': `Bearer ${CONFIG.accessToken}` }
-                    });
-                    const data = await res.json();
-                    if (data.data?.length > 0) {
-                        setGameArt(data.data[0].box_art_url.replace('{width}', '300').replace('{height}', '400'));
-                    }
-                } catch (e) { console.error("Art Error:", e); }
-            };
-
-            const buildDatabase = async () => {
-                setIndexing(true);
-                try {
-                    let collected = [];
-                    let cursor = '';
-                    for (let i = 0; i < 10; i++) {
-                        const res = await fetch(`https://api.twitch.tv/helix/clips?broadcaster_id=${CONFIG.broadcasterId}&first=100${cursor ? `&after=${cursor}` : ''}`, {
-                            headers: { 'Client-ID': CONFIG.clientId, 'Authorization': `Bearer ${CONFIG.accessToken}` }
-                        });
-                        const data = await res.json();
-                        if (data.data) collected = [...collected, ...data.data];
-                        cursor = data.pagination?.cursor;
-                        if (!cursor) break;
-                    }
-                    setClipArchive(collected);
-                } catch (e) { console.error("Index Error:", e); }
-                finally { setIndexing(false); }
-            };
-
-            const rotateClip = useCallback(async () => {
-                setLoading(true);
-                try {
-                    const params = new URLSearchParams({ broadcaster_id: CONFIG.broadcasterId, first: settings.range });
-                    const now = new Date();
-                    if (settings.timeRange === '7d') now.setDate(now.getDate() - 7);
-                    else if (settings.timeRange === '30d') now.setMonth(now.getMonth() - 1);
-                    else if (settings.timeRange === 'year') now.setFullYear(now.getFullYear() - 1);
-                    if (settings.timeRange !== 'all') params.append('started_at', now.toISOString());
-
-                    const res = await fetch(`https://api.twitch.tv/helix/clips?${params.toString()}`, {
-                        headers: { 'Client-ID': CONFIG.clientId, 'Authorization': `Bearer ${CONFIG.accessToken}` }
-                    });
-                    const data = await res.json();
-                    let pool = data.data || [];
-
-                    if (settings.includedIds.length > 0) {
-                        pool = pool.filter(c => settings.includedIds.includes(c.id));
-                        if (pool.length === 0) {
-                            const specRes = await fetch(`https://api.twitch.tv/helix/clips?id=${settings.includedIds.join('&id=')}`, {
-                                headers: { 'Client-ID': CONFIG.clientId, 'Authorization': `Bearer ${CONFIG.accessToken}` }
-                            });
-                            const specData = await specRes.json();
-                            pool = specData.data || [];
-                        }
-                    }
-                    if (settings.excludedIds.length > 0) pool = pool.filter(c => !settings.excludedIds.includes(c.id));
-
-                    if (pool.length > 0) {
-                        const selection = settings.shuffle ? pool[Math.floor(Math.random() * pool.length)] : pool[0];
-                        setClip(selection);
-                        fetchGameArt(selection.game_id);
-                    }
-                } catch (e) { console.error("Rotate Error:", e); }
-                finally { setLoading(false); }
-            }, [settings]);
-
-            useEffect(() => {
-                if (timerRef.current) clearInterval(timerRef.current);
-                timerRef.current = setInterval(rotateClip, settings.duration * 1000);
-                return () => clearInterval(timerRef.current);
-            }, [settings.duration, rotateClip]);
-
-            useEffect(() => { rotateClip(); }, [rotateClip]);
-
-            const getEmbedUrl = (c) => {
-                if (!c) return '';
-                const host = window.location.hostname || 'localhost';
-                // STATED FORMAT: autoplay -> clip -> parent
-                // Plus our essential parent fallbacks for GitHub and OBS
-                return `https://clips.twitch.tv/embed?autoplay=true&clip=${c.id}&muted=${isMuted}&parent=${host}&parent=rydenbelmont-maker.github.io&parent=localhost&parent=obs.twitch.tv`;
-            };
-
-            const toggleFilter = (id, key) => {
-                setSettings(prev => ({
-                    ...prev,
-                    [key]: prev[key].includes(id) ? prev[key].filter(x => x !== id) : [...prev[key], id]
-                }));
-            };
-
-            const filteredArchive = useMemo(() => {
-                if (!searchQuery) return [];
-                return clipArchive.filter(c => c.title.toLowerCase().includes(searchQuery.toLowerCase()));
-            }, [searchQuery, clipArchive]);
-
-            const handlePageClick = () => {
-                if (isMuted) setIsMuted(false);
-            };
-
-            useEffect(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
-
-            return (
-                <div className="relative w-full h-full bg-black group overflow-hidden" onClick={handlePageClick}>
-                    <div className="settings-area p-4">
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); setShowMenu(true); if(clipArchive.length === 0) buildDatabase(); }}
-                            className="bg-black/60 hover:bg-purple-600 p-3 rounded-xl border border-white/10 text-white/40 hover:text-white transition-all shadow-2xl"
-                        >
-                            <i data-lucide="settings" className="w-5 h-5"></i>
-                        </button>
-                    </div>
-
-                    {isMuted && clip && (
-                        <div className="absolute top-4 right-4 z-50 animate-pulse">
-                            <div className="bg-purple-600/90 text-white px-3 py-1.5 rounded-full flex items-center gap-2 text-[8px] font-black uppercase tracking-widest backdrop-blur-md">
-                                <i data-lucide="volume-x" className="w-3 h-3"></i>
-                                Click to Unmute
-                            </div>
-                        </div>
-                    )}
-
-                    {showMenu && (
-                        <div className="absolute inset-0 z-[200] bg-black/95 backdrop-blur-3xl flex items-center justify-center p-4" onClick={() => setShowMenu(false)}>
-                            <div className="w-full max-w-4xl max-h-[90vh] bg-[#0c0c0e] border border-white/10 rounded-[2.5rem] p-8 space-y-8 shadow-2xl relative flex flex-col" onClick={e => e.stopPropagation()}>
-                                <button onClick={() => setShowMenu(false)} className="absolute top-8 right-8 text-zinc-600 hover:text-white transition-colors">
-                                    <i data-lucide="x" className="w-6 h-6"></i>
-                                </button>
-
-                                <div className="space-y-1">
-                                    <h3 className="text-2xl font-black text-white uppercase italic">Widget Settings</h3>
-                                    <p className="text-[8px] text-zinc-600 font-black tracking-widest uppercase tracking-[0.4em]">Broadcaster Sync v10.0 // RYDEN_BELMONT</p>
-                                </div>
-
-                                <div className="grid md:grid-cols-2 gap-8 overflow-hidden flex-1">
-                                    <div className="space-y-6 overflow-y-auto pr-4 custom-scrollbar">
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-2">
-                                                <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Rotation Rate (S)</label>
-                                                <input type="number" value={settings.duration} onChange={(e) => setSettings({...settings, duration: Number(e.target.value)})} className="w-full bg-black border border-white/5 rounded-xl px-4 py-3 text-xs font-bold focus:ring-1 focus:ring-purple-600 outline-none transition-all"/>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Time Range</label>
-                                                <select value={settings.timeRange} onChange={(e) => setSettings({...settings, timeRange: e.target.value})} className="w-full bg-black border border-white/5 rounded-xl px-4 py-3 text-[10px] font-bold focus:ring-1 focus:ring-purple-600 outline-none cursor-pointer appearance-none">
-                                                    <option value="all">Featured / All Time</option>
-                                                    <option value="7d">Last 7 Days</option>
-                                                    <option value="30d">Last 30 Days</option>
-                                                    <option value="year">This Year</option>
-                                                </select>
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-4">
-                                            <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest flex justify-between items-center">
-                                                Database Search
-                                                {indexing && <span className="animate-pulse text-purple-600 font-black tracking-widest">Indexing...</span>}
-                                            </label>
-                                            <input type="text" placeholder="Pin or Ban clips by title..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-xs font-medium focus:ring-1 focus:ring-purple-600 outline-none" />
-                                            <div className="space-y-2 h-64 overflow-y-auto custom-scrollbar pr-2">
-                                                {filteredArchive.length === 0 && searchQuery.length > 0 && !indexing && (
-                                                    <div className="text-center py-10 text-[9px] text-zinc-700 uppercase font-black tracking-widest italic">No matching highlights found</div>
-                                                )}
-                                                {filteredArchive.map(c => (
-                                                    <div key={c.id} className="bg-white/5 p-3 rounded-xl border border-white/5 flex items-center gap-4 hover:bg-white/10 transition-all">
-                                                        <img src={c.thumbnail_url} className="w-16 h-10 rounded-lg object-cover shadow-lg" />
-                                                        <div className="flex-1 overflow-hidden">
-                                                            <p className="text-[10px] font-bold truncate text-white">{c.title}</p>
-                                                            <p className="text-[8px] text-zinc-600 mt-0.5 uppercase font-black">{new Date(c.created_at).toLocaleDateString()}</p>
-                                                        </div>
-                                                        <div className="flex gap-1.5">
-                                                            <button onClick={() => toggleFilter(c.id, 'includedIds')} className={`p-2 rounded-lg border transition-all ${settings.includedIds.includes(c.id) ? 'bg-green-600 border-green-400 text-white' : 'border-white/10 text-zinc-700 hover:text-green-500'}`}><i data-lucide="check" className="w-3.5 h-3.5"></i></button>
-                                                            <button onClick={() => toggleFilter(c.id, 'excludedIds')} className={`p-2 rounded-lg border transition-all ${settings.excludedIds.includes(c.id) ? 'bg-red-600 border-red-400 text-white' : 'border-white/10 text-zinc-700 hover:text-red-500'}`}><i data-lucide="slash" className="w-3.5 h-3.5"></i></button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-white/5 rounded-3xl border border-white/5 p-8 flex flex-col justify-between">
-                                        <div className="space-y-8">
-                                            <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest italic">Widget Payload</label>
-                                            <div className="space-y-4">
-                                                <div className="p-5 bg-purple-600/5 border border-purple-500/20 rounded-2xl">
-                                                    <p className="text-[8px] text-purple-400 mb-1 uppercase font-black tracking-widest">Active Host</p>
-                                                    <p className="text-white font-mono text-[11px] font-bold uppercase truncate">{window.location.hostname || "localhost"}</p>
-                                                </div>
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div className={`p-5 rounded-2xl border transition-all ${settings.includedIds.length > 0 ? 'bg-green-600/10 border-green-500/30' : 'bg-black/40 border-white/5 opacity-50'}`}>
-                                                        <p className="text-[8px] text-zinc-600 mb-1 font-black uppercase">Pinned</p>
-                                                        <p className="text-xl font-black text-white">{settings.includedIds.length}</p>
-                                                    </div>
-                                                    <div className={`p-5 rounded-2xl border transition-all ${settings.excludedIds.length > 0 ? 'bg-red-600/10 border-red-500/30' : 'bg-black/40 border-white/5 opacity-50'}`}>
-                                                        <p className="text-[8px] text-zinc-600 mb-1 font-black uppercase">Banned</p>
-                                                        <p className="text-xl font-black text-white">{settings.excludedIds.length}</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <button onClick={() => { rotateClip(); setShowMenu(false); }} className="w-full bg-white text-black py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-purple-600 hover:text-white transition-all shadow-2xl active:scale-95">Sync & Deploy Changes</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="widget-container">
-                        <div className="video-aspect-frame">
-                            {clip ? (
-                                <iframe 
-                                    key={`${clip.id}-${isMuted}`} 
-                                    src={getEmbedUrl(clip)} 
-                                    allowFullScreen 
-                                    allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-                                    className="w-full h-full shadow-2xl"
-                                ></iframe>
-                            ) : (
-                                <div className="w-full h-full flex flex-col items-center justify-center bg-black gap-4 opacity-30">
-                                    <div className="w-8 h-8 border-2 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
-                                    <span className="text-[8px] font-black uppercase tracking-[0.4em] italic">Initializing Ryden Archive...</span>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {clip && !showMenu && (
-                        <div className="absolute inset-0 overlay-mask flex items-end p-6 md:p-10">
-                            <div className="animate-in fade-in slide-in-from-bottom-4 duration-1000">
-                                <div className="flex flex-col gap-3">
-                                    <div className="flex items-center gap-3">
-                                        <div className="bg-purple-600 px-3 py-1 rounded shadow-lg shadow-purple-500/40 ring-1 ring-purple-400/30">
-                                            <span className="text-[8px] font-black uppercase tracking-widest italic text-white">Live Highlight</span>
-                                        </div>
-                                        <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest italic">{clip.creator_name}</span>
-                                    </div>
-                                    <div className="flex items-center gap-6 text-[10px] font-black uppercase tracking-widest text-zinc-600 italic">
-                                        <div className="flex items-center gap-2">
-                                            <i data-lucide="eye" className="w-4 h-4 text-purple-600"></i>
-                                            <span className="text-zinc-200">{clip.view_count.toLocaleString()} Views</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <i data-lucide="calendar" className="w-4 h-4 text-purple-600"></i>
-                                            <span className="text-zinc-200 uppercase">{new Date(clip.created_at).toLocaleDateString()}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {gameArt && !showMenu && (
-                        <div className="absolute bottom-6 right-6 md:bottom-10 md:right-10 w-20 md:w-32 game-art-float pointer-events-none z-20">
-                            <div className="p-1 bg-white/10 backdrop-blur-2xl rounded-xl shadow-[0_30px_50px_rgba(0,0,0,0.8)] ring-1 ring-white/20 overflow-hidden">
-                                <img src={gameArt} alt="Game Art" className="w-full h-auto rounded-lg shadow-lg opacity-90 contrast-[1.1]" />
-                            </div>
-                        </div>
-                    )}
-                </div>
-            );
-        };
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
     </script>
 </body>
 </html>
