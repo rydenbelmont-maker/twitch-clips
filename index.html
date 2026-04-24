@@ -177,8 +177,9 @@
 
             const getEmbedUrl = (c) => {
                 if (!c) return '';
-                const host = window.location.hostname;
-                // PARENT FIX: Strictly uses domain for Github Pages and OBS Studio stability
+                const host = window.location.hostname |
+
+| 'localhost';
                 return `https://clips.twitch.tv/embed?clip=${c.id}&autoplay=true&muted=${isMuted}&parent=${host}&parent=rydenbelmont-maker.github.io&parent=localhost&parent=obs.twitch.tv`;
             };
 
@@ -271,7 +272,7 @@
                                                 <p className="text-[8px] text-purple-400 mb-1 uppercase font-black tracking-widest">Origin</p>
                                                 <p className="text-white font-mono text-[10px] font-bold truncate">{window.location.hostname |
 
-| "localhost"}</p>
+| 'localhost'}</p>
                                             </div>
                                         </div>
                                         <button onClick={() => { rotateClip(); setShowMenu(false); }} className="w-full bg-white text-black py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-purple-600 hover:text-white transition-all shadow-2xl">Deploy Widget</button>
@@ -325,7 +326,7 @@
                     )}
 
                     {gameArt &&!showMenu && (
-                        <div className="absolute bottom-4 right-4 md:bottom-8 md:right-8 w-16 md:w-28 game-art-float pointer-events-none z-[20]">
+                        <div className="absolute bottom-4 right-4 md:bottom-8 md:right-8 w-16 md:w-28 game-art-float pointer-events-none z-[1]">
                             <div className="p-1 bg-white/10 backdrop-blur-2xl rounded-xl shadow-2xl ring-1 ring-white/20 overflow-hidden">
                                 <img src={gameArt} alt="Game Box Art" className="w-full h-auto rounded-lg shadow-lg opacity-90 contrast-[1.1]" />
                             </div>
