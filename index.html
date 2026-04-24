@@ -219,6 +219,43 @@
             100% { opacity: 1; transform: scale(1.1); }
         }
 
+        /* Initial Start Overlay */
+        #start-overlay {
+            position: fixed;
+            inset: 0;
+            background: black;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2rem;
+            cursor: pointer;
+        }
+
+        #start-overlay h2 {
+            font-family: 'Teko', sans-serif;
+            font-size: 3rem;
+            letter-spacing: 4px;
+            color: var(--ranger-gold);
+            text-transform: uppercase;
+        }
+
+        .pulse-btn {
+            background: var(--ranger-red);
+            padding: 1rem 3rem;
+            font-weight: 900;
+            border-radius: 0.5rem;
+            box-shadow: 0 0 20px var(--ranger-red);
+            animation: pulseShadow 2s infinite;
+        }
+
+        @keyframes pulseShadow {
+            0% { box-shadow: 0 0 10px var(--ranger-red); transform: scale(1); }
+            50% { box-shadow: 0 0 30px var(--ranger-red); transform: scale(1.05); }
+            100% { box-shadow: 0 0 10px var(--ranger-red); transform: scale(1); }
+        }
+
         /* Clip UI Specifics */
         #clip-frame { width: 100%; height: 100%; border: none; }
         
@@ -252,6 +289,15 @@
 </head>
 <body class="is-widget-mode">
 
+    <!-- Browser Autoplay Policy satisfying interaction overlay -->
+    <div id="start-overlay" onclick="initializeSession()">
+        <svg class="large-bolt mb-4" viewBox="0 0 32 32">
+            <path d="M18 2 L6 16 L14 16 L10 30 L26 12 L18 12 Z"></path>
+        </svg>
+        <h2>Command Center Offline</h2>
+        <div class="pulse-btn">SYNC POWER GRID</div>
+    </div>
+
     <!-- Invisible Admin Trigger -->
     <div id="admin-trigger" title="Master Control"></div>
     
@@ -273,7 +319,7 @@
     <canvas id="lightning-canvas"></canvas>
 
     <div class="morpher-card">
-        <div id="mode-header" class="header-tag">Initializing...</div>
+        <div id="mode-header" class="header-tag">Power Grid Linked</div>
 
         <div class="content-wrapper">
             <!-- Title View -->
@@ -285,7 +331,7 @@
 
             <!-- Clip Widget View -->
             <div id="view-widget" class="widget-view">
-                <iframe id="clip-frame" allowfullscreen="true" scrolling="no" allow="autoplay; encrypted-media"></iframe>
+                <iframe id="clip-frame" allow="autoplay; encrypted-media; fullscreen" allowfullscreen="true" scrolling="no"></iframe>
                 
                 <!-- Game Overlay (Bottom Right) -->
                 <div id="game-overlay" class="absolute bottom-4 right-4 z-10 opacity-0 transition-opacity duration-500 pointer-events-none flex items-center gap-3 bg-black/80 backdrop-blur-md border border-white/10 p-2 pr-4 rounded-xl">
@@ -355,9 +401,13 @@
         async function fetchClips(limit = 100, cursor = null) {
             let url = `https://api.twitch.tv/helix/clips?broadcaster_id=${CLIP_CONFIG.broadcasterId}&first=${limit}`;
             if (cursor) url += `&after=${cursor}`;
-            const res = await fetch(url, { headers: { 'Client-ID': CLIP_CONFIG.clientId, 'Authorization': `Bearer ${CLIP_CONFIG.accessToken}` } });
-            const data = await res.json();
-            return { data: data.data || [], cursor: data.pagination ? data.pagination.cursor : null };
+            try {
+                const res = await fetch(url, { headers: { 'Client-ID': CLIP_CONFIG.clientId, 'Authorization': `Bearer ${CLIP_CONFIG.accessToken}` } });
+                const data = await res.json();
+                return { data: data.data || [], cursor: data.pagination ? data.pagination.cursor : null };
+            } catch(e) {
+                return { data: [], cursor: null };
+            }
         }
 
         async function getGameInfo(gameId) {
@@ -384,9 +434,16 @@
             if (!clipState.playbackQueue.length) return;
             clipState.currentIndex = (clipState.currentIndex + 1) % clipState.playbackQueue.length;
             const clip = clipState.playbackQueue[clipState.currentIndex];
-            const parents = [...CLIP_CONFIG.baseParents, window.location.hostname].filter(Boolean);
+            
+            // Collect parent parameters correctly
+            const host = window.location.hostname;
+            const parents = [...CLIP_CONFIG.baseParents];
+            if (host && host !== "" && !parents.includes(host)) parents.push(host);
             const parentString = parents.map(p => `&parent=${p}`).join('');
-            document.getElementById('clip-frame').src = `https://clips.twitch.tv/embed?autoplay=true&clip=${clip.id}&muted=false${parentString}`;
+            
+            // Set source and force autoplay
+            const iframe = document.getElementById('clip-frame');
+            iframe.src = `https://clips.twitch.tv/embed?autoplay=true&clip=${clip.id}&muted=false${parentString}`;
 
             const overlay = document.getElementById('game-overlay');
             overlay.classList.add('opacity-0');
@@ -475,11 +532,23 @@
         const pauseBtn = document.getElementById('pause-btn');
         const autoStatus = document.getElementById('auto-status');
         
-        let isWidgetMode = true;
+        let isWidgetMode = false;
         let timeLeft = 300;
         let isPaused = false;
         let autoRotate = true;
         let rotationInterval;
+
+        function initializeSession() {
+            document.getElementById('start-overlay').style.display = 'none';
+            // Start rotation and clips now that user has interacted
+            startAutoRotation();
+            fetchClips(100).then(res => {
+                clipState.clips = res.data;
+                buildPlaybackQueue();
+                playNextClip();
+                toggleDisplay(); // Switch to widget mode immediately to show the first clip
+            });
+        }
 
         adminTrigger.addEventListener('click', () => {
             adminPanel.style.display = adminPanel.style.display === 'flex' ? 'none' : 'flex';
@@ -550,15 +619,8 @@
 
         function animate() { if (Math.random() > 0.988) drawLightning(); requestAnimationFrame(animate); }
 
-        // Start Everything
+        // Load settings but wait for interaction to fetch/play
         loadClipSettings();
-        fetchClips(100).then(res => {
-            clipState.clips = res.data;
-            buildPlaybackQueue();
-            playNextClip();
-            modeHeader.textContent = "Reviewing Tactical Highlights";
-        });
-        startAutoRotation();
         animate();
     </script>
 </body>
