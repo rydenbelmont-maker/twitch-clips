@@ -78,6 +78,15 @@
     <!-- Main Clip Player -->
     <iframe id="clip-frame" allowfullscreen="true" scrolling="no" allow="autoplay; encrypted-media"></iframe>
 
+    <!-- Game Overlay (Bottom Right) -->
+    <div id="game-overlay" class="absolute bottom-8 right-8 z-10 opacity-0 transition-opacity duration-500 pointer-events-none flex items-center gap-3 bg-slate-900/85 backdrop-blur-md border border-slate-700/50 p-2 pr-5 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.6)]">
+        <img id="overlay-game-art" src="" alt="Game Art" class="w-12 h-16 object-cover rounded shadow-md hidden">
+        <div class="flex flex-col">
+            <span class="text-xs text-indigo-400 font-bold uppercase tracking-wider">Playing</span>
+            <span id="overlay-game-name" class="text-white font-bold text-lg leading-tight drop-shadow-md"></span>
+        </div>
+    </div>
+
     <!-- Settings Trigger Button -->
     <button id="settings-trigger" class="bg-indigo-600 hover:bg-indigo-500 text-white p-3 rounded-full shadow-lg backdrop-blur-md transition-all transform hover:scale-110" onclick="openSettings()">
         <i class="ph ph-gear text-2xl"></i>
@@ -145,6 +154,9 @@
             hasDeepIndexed: false
         };
 
+        // Cache for Twitch Games API
+        let gameCache = {};
+
         // User Settings (Loaded from LocalStorage)
         let settings = {
             pinned: [], // Array of clip IDs
@@ -195,6 +207,27 @@
                 console.error("Network error fetching clips:", err);
                 return { data: [], cursor: null };
             }
+        }
+
+        async function getGameInfo(gameId) {
+            if (!gameId) return null;
+            if (gameCache[gameId]) return gameCache[gameId]; // Return from cache if we already fetched it
+            try {
+                const response = await fetch(`https://api.twitch.tv/helix/games?id=${gameId}`, {
+                    headers: {
+                        'Client-ID': CONFIG.clientId,
+                        'Authorization': `Bearer ${CONFIG.accessToken}`
+                    }
+                });
+                const data = await response.json();
+                if (data.data && data.data.length > 0) {
+                    gameCache[gameId] = data.data[0];
+                    return data.data[0];
+                }
+            } catch (err) {
+                console.error("Error fetching game info:", err);
+            }
+            return null;
         }
 
         // "Deep Indexing" -> Fetches up to 1000 clips for the management menu
@@ -271,6 +304,30 @@
             const iframeUrl = `https://clips.twitch.tv/embed?autoplay=true&clip=${clip.id}&muted=false${parentString}`;
             
             document.getElementById('clip-frame').src = iframeUrl;
+
+            // Handle Game Overlay
+            const overlay = document.getElementById('game-overlay');
+            const gameNameEl = document.getElementById('overlay-game-name');
+            const gameArtEl = document.getElementById('overlay-game-art');
+
+            // Hide immediately when a new clip starts loading
+            overlay.classList.add('opacity-0');
+
+            if (clip.game_id) {
+                getGameInfo(clip.game_id).then(game => {
+                    if (game) {
+                        gameNameEl.innerText = game.name;
+                        // Replace the templated width/height in the Twitch Box Art URL
+                        gameArtEl.src = game.box_art_url.replace('{width}', '60').replace('{height}', '80');
+                        gameArtEl.classList.remove('hidden');
+                        
+                        // Wait briefly before fading in so it appears as the video is playing
+                        setTimeout(() => {
+                            overlay.classList.remove('opacity-0');
+                        }, 800);
+                    }
+                });
+            }
 
             // Determine when to switch to the next clip
             // Add a 1.5 second buffer for loading over the actual clip duration
