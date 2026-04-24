@@ -30,7 +30,7 @@
         }
         .game-art-float { animation: float 5s ease-in-out infinite; }
         
-        /* Invisible settings trigger - top left */
+        /* Hidden settings trigger - top left */
         .settings-area {
             position: absolute; top: 0; left: 0; width: 150px; height: 150px;
             z-index: 100; opacity: 0; transition: opacity 0.3s ease;
@@ -69,13 +69,13 @@
             const [gameArt, setGameArt] = useState(null);
             const [loading, setLoading] = useState(true);
             const [showMenu, setShowMenu] = useState(false);
-            const [clipArchive, setClipArchive] = useState([]); // Full searchable database
+            const [clipArchive, setClipArchive] = useState([]); 
             const [indexing, setIndexing] = useState(false);
             const [searchQuery, setSearchQuery] = useState('');
 
-            // Settings initialized from LocalStorage
+            // Settings from LocalStorage
             const [settings, setSettings] = useState(() => {
-                const saved = localStorage.getItem('ryden_v4_settings');
+                const saved = localStorage.getItem('ryden_v5_settings');
                 return saved ? JSON.parse(saved) : {
                     duration: 60,
                     range: 100,
@@ -88,12 +88,10 @@
 
             const timerRef = useRef(null);
 
-            // Persist settings
             useEffect(() => {
-                localStorage.setItem('ryden_v4_settings', JSON.stringify(settings));
+                localStorage.setItem('ryden_v5_settings', JSON.stringify(settings));
             }, [settings]);
 
-            // Fetch box art for the game
             const fetchGameArt = async (gameId) => {
                 if (!gameId) return;
                 try {
@@ -107,17 +105,17 @@
                 } catch (e) { console.error("Art load failed", e); }
             };
 
-            // Index history for the Search Menu (800 clips)
+            // Deep Index: Fetch up to 1000 clips for the Search Database
             const buildDatabase = async () => {
                 setIndexing(true);
                 try {
                     let collected = [];
                     let cursor = '';
-                    for (let i = 0; i < 8; i++) {
+                    for (let i = 0; i < 10; i++) {
                         const res = await fetch(`https://api.twitch.tv/helix/clips?broadcaster_id=${CONFIG.broadcasterId}&first=100${cursor ? `&after=${cursor}` : ''}`, {
                             headers: { 'Client-ID': CONFIG.clientId, 'Authorization': `Bearer ${CONFIG.accessToken}` }
                         });
-                        const data = await res.json();
+                        const data = await response.ok ? await res.json() : { data: [] };
                         if (data.data) collected = [...collected, ...data.data];
                         cursor = data.pagination?.cursor;
                         if (!cursor) break;
@@ -143,10 +141,9 @@
                     const data = await res.json();
                     let pool = data.data || [];
 
-                    // Apply inclusion (Pin) filters
+                    // Apply Pin/Ban logic
                     if (settings.includedIds.length > 0) {
                         pool = pool.filter(c => settings.includedIds.includes(c.id));
-                        // If pinned clips aren't in the recent fetch, fetch them specifically
                         if (pool.length === 0) {
                             const specRes = await fetch(`https://api.twitch.tv/helix/clips?id=${settings.includedIds.join('&id=')}`, {
                                 headers: { 'Client-ID': CONFIG.clientId, 'Authorization': `Bearer ${CONFIG.accessToken}` }
@@ -156,7 +153,6 @@
                         }
                     }
                     
-                    // Apply exclusion (Ban) filters
                     if (settings.excludedIds.length > 0) {
                         pool = pool.filter(c => !settings.excludedIds.includes(c.id));
                     }
@@ -170,7 +166,7 @@
                 finally { setLoading(false); }
             }, [settings]);
 
-            // Auto-advance timer
+            // Timer management
             useEffect(() => {
                 if (timerRef.current) clearInterval(timerRef.current);
                 timerRef.current = setInterval(pickNextClip, settings.duration * 1000);
@@ -181,13 +177,13 @@
 
             const getEmbedUrl = (c) => {
                 if (!c) return '';
-                const host = window.location.hostname;
-                // High-precision parent list per implementation protocol
-                const parents = [host, 'rydenbelmont-maker.github.io', 'localhost', '127.0.0.1'];
-                const parentStr = [...new Set(parents)].filter(p => p).map(p => `&parent=${p}`).join('');
                 
-                // Construct specific clip embed URL
-                return `https://clips.twitch.tv/embed?clip=${c.id}${parentStr}&autoplay=true&muted=false`;
+                // FORUM FIX: Extract the exact domain. Twitch often fails if there are multiple parents 
+                // or if the parent isn't the first parameter after the ID.
+                const host = window.location.hostname;
+                
+                // Constructing based on the discussion: ID -> Autoplay -> Muted -> Parent
+                return `https://clips.twitch.tv/embed?clip=${c.id}&autoplay=true&muted=false&parent=${host}`;
             };
 
             const toggleFilter = (id, key) => {
@@ -206,7 +202,7 @@
 
             return (
                 <div className="relative w-full h-full bg-black group overflow-hidden">
-                    {/* Settings Trigger Area */}
+                    {/* Settings Trigger */}
                     <div className="settings-area p-8">
                         <button 
                             onClick={() => { setShowMenu(true); if(clipArchive.length === 0) buildDatabase(); }}
@@ -216,20 +212,20 @@
                         </button>
                     </div>
 
-                    {/* Management UI */}
+                    {/* Pro Management Interface */}
                     {showMenu && (
                         <div className="absolute inset-0 z-[200] bg-black/95 backdrop-blur-2xl flex items-center justify-center p-6" onClick={() => setShowMenu(false)}>
-                            <div className="w-full max-w-5xl max-h-[85vh] bg-[#0d0d0f] border border-white/10 rounded-[3rem] p-12 space-y-10 shadow-2xl relative flex flex-col" onClick={e => e.stopPropagation()}>
+                            <div className="w-full max-w-5xl max-h-[85vh] bg-[#0b0b0d] border border-white/10 rounded-[3rem] p-12 space-y-10 shadow-2xl relative flex flex-col" onClick={e => e.stopPropagation()}>
                                 <button onClick={() => setShowMenu(false)} className="absolute top-12 right-12 text-zinc-600 hover:text-white transition-colors">
                                     <i data-lucide="x" className="w-7 h-7"></i>
                                 </button>
 
                                 <div className="space-y-2">
-                                    <h3 className="text-4xl font-black tracking-tighter text-white uppercase italic italic">Control Console</h3>
+                                    <h3 className="text-4xl font-black tracking-tighter text-white uppercase italic">Clip Controller</h3>
                                     <div className="flex items-center gap-4 text-[10px] text-zinc-600 font-black tracking-[0.4em] uppercase">
-                                        <span>v4.0.0 Stable</span>
+                                        <span>v5.0.0 Stable</span>
                                         <div className="w-1 h-1 rounded-full bg-zinc-800"></div>
-                                        <span>Ryden Belmont Architecture</span>
+                                        <span>Sync Mode: Broadcast</span>
                                     </div>
                                 </div>
 
@@ -237,11 +233,11 @@
                                     <div className="space-y-8 overflow-y-auto pr-4 custom-scrollbar">
                                         <div className="grid grid-cols-2 gap-6">
                                             <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Rotation Speed (S)</label>
+                                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Rotation Rate (S)</label>
                                                 <input type="number" value={settings.duration} onChange={(e) => setSettings({...settings, duration: Number(e.target.value)})} className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-sm font-bold focus:ring-1 focus:ring-purple-600 outline-none transition-all"/>
                                             </div>
                                             <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Time Window</label>
+                                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Archive Filter</label>
                                                 <select value={settings.timeRange} onChange={(e) => setSettings({...settings, timeRange: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-xs font-bold focus:ring-1 focus:ring-purple-600 outline-none cursor-pointer appearance-none">
                                                     <option value="all">Featured / All Time</option>
                                                     <option value="7d">Last 7 Days</option>
@@ -253,13 +249,13 @@
 
                                         <div className="space-y-4">
                                             <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex justify-between items-center">
-                                                Search Archive Database
-                                                {indexing && <span className="animate-pulse text-purple-600">Indexing...</span>}
+                                                Search All Clips (Deep Index)
+                                                {indexing && <span className="animate-pulse text-purple-600 font-black uppercase">Indexing...</span>}
                                             </label>
                                             <div className="relative">
                                                 <input 
                                                     type="text" 
-                                                    placeholder="Search title to Pin or Ban..." 
+                                                    placeholder="Search to Pin or Ban specific clips..." 
                                                     value={searchQuery}
                                                     onChange={(e) => setSearchQuery(e.target.value)}
                                                     className="w-full bg-black border border-white/10 rounded-2xl pl-14 pr-6 py-5 text-sm font-medium focus:ring-1 focus:ring-purple-600 outline-none"
@@ -269,9 +265,9 @@
                                             
                                             <div className="space-y-2 h-72 overflow-y-auto custom-scrollbar pr-2">
                                                 {indexing ? (
-                                                    <div className="text-center py-20 opacity-50 uppercase text-[10px] font-black tracking-widest">Loading History...</div>
+                                                    <div className="text-center py-20"><Spinner /></div>
                                                 ) : searchQuery.length < 2 ? (
-                                                    <div className="text-center py-20 text-[10px] text-zinc-700 uppercase font-black tracking-widest italic">Start typing to search clips...</div>
+                                                    <div className="text-center py-20 text-[10px] text-zinc-700 uppercase font-black tracking-widest italic">Type to find clips in history...</div>
                                                 ) : filteredArchive.length > 0 ? (
                                                     filteredArchive.map(c => (
                                                         <div key={c.id} className="bg-white/5 p-3 rounded-2xl border border-white/5 flex items-center gap-5 hover:bg-white/10 transition-all">
@@ -287,7 +283,7 @@
                                                         </div>
                                                     ))
                                                 ) : (
-                                                    <div className="text-center py-20 text-[10px] text-zinc-700 font-black tracking-widest">No results found</div>
+                                                    <div className="text-center py-20 text-[10px] text-zinc-700 font-black tracking-widest">No results in index</div>
                                                 )}
                                             </div>
                                         </div>
@@ -295,32 +291,32 @@
 
                                     <div className="bg-white/5 rounded-[3rem] border border-white/5 p-10 flex flex-col justify-between">
                                         <div className="space-y-8">
-                                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest italic">Live Ruleset Summary</label>
+                                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest italic">Active Ruleset</label>
                                             <div className="space-y-4">
                                                 <div className="p-6 bg-purple-600/5 border border-purple-500/20 rounded-[2rem]">
-                                                    <p className="text-[9px] text-purple-400 mb-2 uppercase font-black tracking-widest">Host Origin</p>
-                                                    <p className="text-white font-mono text-base font-bold">{window.location.hostname || "localhost"}</p>
+                                                    <p className="text-[9px] text-purple-400 mb-2 uppercase font-black tracking-widest">Parent Domain</p>
+                                                    <p className="text-white font-mono text-base font-bold uppercase">{window.location.hostname || "localhost"}</p>
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-4">
                                                     <div className={`p-6 rounded-[2rem] border transition-all ${settings.includedIds.length > 0 ? 'bg-green-600/10 border-green-500/30' : 'bg-black/40 border-white/5 opacity-50'}`}>
-                                                        <p className="text-[8px] text-zinc-600 mb-2 uppercase font-black tracking-widest">Pinned</p>
+                                                        <p className="text-[8px] text-zinc-600 mb-2 uppercase font-black tracking-widest">Pinned Pool</p>
                                                         <p className="text-2xl font-black text-white">{settings.includedIds.length}</p>
                                                     </div>
                                                     <div className={`p-6 rounded-[2rem] border transition-all ${settings.excludedIds.length > 0 ? 'bg-red-600/10 border-red-500/30' : 'bg-black/40 border-white/5 opacity-50'}`}>
-                                                        <p className="text-[8px] text-zinc-600 mb-2 uppercase font-black tracking-widest">Banned</p>
+                                                        <p className="text-[8px] text-zinc-600 mb-2 uppercase font-black tracking-widest">Banned Pool</p>
                                                         <p className="text-2xl font-black text-white">{settings.excludedIds.length}</p>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
-                                        <button onClick={() => { pickNextClip(); setShowMenu(false); }} className="w-full bg-white text-black py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] hover:bg-purple-600 hover:text-white transition-all shadow-2xl active:scale-95">Commit & Sync</button>
+                                        <button onClick={() => { pickNextClip(); setShowMenu(false); }} className="w-full bg-white text-black py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.4em] hover:bg-purple-600 hover:text-white transition-all shadow-2xl active:scale-95">Deploy Changes</button>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Media Interface */}
+                    {/* Media Layer */}
                     <div className="video-wrapper">
                         {clip ? (
                             <iframe 
@@ -338,7 +334,7 @@
                         )}
                     </div>
 
-                    {/* Metadata Layer */}
+                    {/* Overlay Metadata */}
                     {clip && !showMenu && (
                         <div className="absolute inset-0 overlay-vignette flex items-end p-10 md:p-16">
                             <div className="max-w-5xl animate-in fade-in slide-in-from-bottom-8 duration-1000">
@@ -357,7 +353,7 @@
                                         </div>
                                         <div className="flex items-center gap-2.5">
                                             <i data-lucide="calendar" className="w-4 h-4 text-purple-600"></i>
-                                            <span className="text-zinc-200">{new Date(clip.created_at).toLocaleDateString()}</span>
+                                            <span className="text-zinc-200 uppercase">{new Date(clip.created_at).toLocaleDateString()}</span>
                                         </div>
                                     </div>
                                 </div>
