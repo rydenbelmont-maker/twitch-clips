@@ -4,13 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ryden Belmont - Clip Widget</title>
-    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' 'unsafe-eval' [https://unpkg.com](https://unpkg.com) [https://cdn.tailwindcss.com](https://cdn.tailwindcss.com) [https://cdn.lucide.dev](https://cdn.lucide.dev); style-src 'self' 'unsafe-inline' [https://fonts.googleapis.com](https://fonts.googleapis.com); font-src 'self' [https://fonts.gstatic.com](https://fonts.gstatic.com); img-src * data:; frame-src [https://clips.twitch.tv](https://clips.twitch.tv) [https://player.twitch.tv](https://player.twitch.tv);">
     
-    <script src="[https://unpkg.com/react@18/umd/react.production.min.js](https://unpkg.com/react@18/umd/react.production.min.js)"></script>
-    <script src="[https://unpkg.com/react-dom@18/umd/react-dom.production.min.js](https://unpkg.com/react-dom@18/umd/react-dom.production.min.js)"></script>
-    <script src="[https://unpkg.com/@babel/standalone/babel.min.js](https://unpkg.com/@babel/standalone/babel.min.js)"></script>
-    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
-    <script src="[https://unpkg.com/lucide@latest](https://unpkg.com/lucide@latest)"></script>
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src * data:; frame-src https://clips.twitch.tv https://player.twitch.tv;">
+    
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
     <style>
         body, html { 
             margin: 0; padding: 0; background-color: transparent; color: #fff; 
@@ -43,10 +45,7 @@
         }
        .settings-area:hover { opacity: 1; }
         
-        /* 
-           FIX for Autoplay: Reduced height from inset-0 (100%) to 40%. 
-           Twitch disables autoplay if the player is obscured by an overlay.
-        */
+        /* AUTOPLAY FIX: Mask reduced to 40% height. Twitch disables autoplay if elements obscure the player center. */
        .overlay-mask {
             position: absolute; 
             bottom: 0; left: 0; right: 0;
@@ -182,7 +181,7 @@
                 const host = window.location.hostname |
 
 | 'localhost';
-                // Parent parameter includes obs.twitch.tv for streaming software stability 
+                /* PARENT FIX: Standardized the list for web and OBS usage. */
                 return `https://clips.twitch.tv/embed?clip=${c.id}&autoplay=true&muted=${isMuted}&parent=${host}&parent=rydenbelmont-maker.github.io&parent=localhost&parent=obs.twitch.tv`;
             };
 
@@ -206,7 +205,7 @@
 
             return (
                 <div className="relative w-full h-full bg-black group overflow-hidden" onClick={handlePageClick}>
-                    {/* Settings Area */}
+                    {/* UI: Settings Toggle */}
                     <div className="settings-area p-4">
                         <button 
                             onClick={(e) => { e.stopPropagation(); setShowMenu(true); if(clipArchive.length === 0) buildDatabase(); }}
@@ -216,7 +215,7 @@
                         </button>
                     </div>
 
-                    {/* Mute Notification */}
+                    {/* Notification: Interaction required for sound. */}
                     {isMuted && clip && (
                         <div className="absolute top-4 right-4 z- animate-pulse">
                             <div className="bg-purple-600/90 text-white px-3 py-1.5 rounded-full flex items-center gap-2 text-[8px] font-black uppercase tracking-widest backdrop-blur-md">
@@ -226,7 +225,7 @@
                         </div>
                     )}
 
-                    {/* Menu Overlay Code Omitted for Brevity in logic check, but restored for full code block below */}
+                    {/* Pro Menu: (Restored functionality) */}
                     {showMenu && (
                         <div className="absolute inset-0 z- bg-black/95 backdrop-blur-3xl flex items-center justify-center p-4" onClick={() => setShowMenu(false)}>
                             <div className="w-full max-w-4xl max-h-[90vh] bg-[#0c0c0e] border border-white/10 rounded-[2.5rem] p-8 space-y-8 shadow-2xl relative flex flex-col" onClick={e => e.stopPropagation()}>
@@ -255,10 +254,7 @@
                                             </div>
                                         </div>
                                         <div className="space-y-4">
-                                            <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest flex justify-between items-center">
-                                                Search Database
-                                                {indexing && <span className="animate-pulse text-purple-600">Syncing...</span>}
-                                            </label>
+                                            <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Search Database</label>
                                             <input type="text" placeholder="Pin or Ban specific clips..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-black border border-white/10 rounded-xl pl-10 pr-4 py-3 text-xs font-medium focus:ring-1 focus:ring-purple-600 outline-none" />
                                             <div className="space-y-2 h-64 overflow-y-auto custom-scrollbar pr-2">
                                                 {filteredArchive.map(c => (
@@ -279,7 +275,9 @@
                                             <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest italic">Widget Payload</label>
                                             <div className="p-4 bg-purple-600/5 border border-purple-500/20 rounded-2xl">
                                                 <p className="text-[8px] text-purple-400 mb-1 uppercase font-black tracking-widest">Origin</p>
-                                                <p className="text-white font-mono text-[10px] font-bold truncate">{host}</p>
+                                                <p className="text-white font-mono text-[10px] font-bold truncate">{window.location.hostname |
+
+| "localhost"}</p>
                                             </div>
                                         </div>
                                         <button onClick={() => { rotateClip(); setShowMenu(false); }} className="w-full bg-white text-black py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-purple-600 hover:text-white transition-all shadow-2xl">Deploy Widget</button>
@@ -289,23 +287,21 @@
                         </div>
                     )}
 
-                    {/* Scalable Widget Interface */}
+                    {/* Twitch Player: Mandatory 400x300 for autoplay. */}
                     <div className="widget-container">
                         {clip? (
                             <iframe 
                                 key={`${clip.id}-${isMuted}`} 
                                 src={getEmbedUrl(clip)} 
                                 allowFullScreen 
-                                // allow="autoplay" is mandatory for automated playback
                                 allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-                                // minWidth and minHeight must be >= 400x300 or autoplay is disabled [5]
                                 style={{ minWidth: '400px', minHeight: '300px' }}
                                 className="w-full h-full"
                             ></iframe>
                         ) : (
                             <div className="w-full h-full flex flex-col items-center justify-center bg-black gap-4 opacity-30">
                                 <div className="w-8 h-8 border-2 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
-                                <span className="text-[8px] font-black uppercase tracking-[0.4em] italic">Initialising Overlay...</span>
+                                <span className="text-[8px] font-black uppercase tracking-[0.4em] italic">Initializing Overlay...</span>
                             </div>
                         )}
                     </div>
@@ -338,7 +334,7 @@
 
                     {/* Floating Game Box Art */}
                     {gameArt &&!showMenu && (
-                        <div className="absolute bottom-4 right-4 md:bottom-8 md:right-8 w-16 md:w-28 game-art-float pointer-events-none z-[4]">
+                        <div className="absolute bottom-4 right-4 md:bottom-8 md:right-8 w-16 md:w-28 game-art-float pointer-events-none z-[1]">
                             <div className="p-1 bg-white/10 backdrop-blur-2xl rounded-xl shadow-2xl ring-1 ring-white/20 overflow-hidden">
                                 <img src={gameArt} alt="Game Box Art" className="w-full h-auto rounded-lg shadow-lg opacity-90 contrast-[1.1]" />
                             </div>
